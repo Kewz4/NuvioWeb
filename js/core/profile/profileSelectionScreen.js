@@ -2102,6 +2102,9 @@ export const ProfileSelectionScreen = {
       ThemeManager.apply();
       I18n.apply();
       await Router.navigate("home", { forceReload: true });
+      if (globalThis.document && typeof globalThis.CustomEvent === "function") {
+        globalThis.document.dispatchEvent(new CustomEvent("nuvio:profile-ready"));
+      }
       void StartupSyncService.requestSyncNow().catch((error) => {
         console.warn("Profile background sync failed", error);
       });

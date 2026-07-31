@@ -14,6 +14,7 @@ import { renderAddonRemotePage } from "./bootstrap/renderAddonRemotePage.js";
 import { preloadStreamBadgeImages } from "./ui/screens/stream/streamScreen.js";
 import { warmStreamingLibs } from "./runtime/loadStreamingLibs.js";
 import { Platform } from "./platform/index.js";
+import { SmartHubPreview } from "./platform/tizen/smartHubPreview.js";
 import { LocalStore } from "./core/storage/localStore.js";
 import { I18n } from "./i18n/index.js";
 
@@ -188,6 +189,7 @@ async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
   } else {
     await Router.navigate("home");
   }
+  SmartHubPreview.notifyProfileReady();
   void StartupSyncService.requestSyncNow().catch((error) => {
     console.warn("Profile background sync failed", error);
   });
@@ -348,6 +350,7 @@ async function bootstrapApp() {
 
   markBootStage("Initializing navigation");
   Router.init();
+  SmartHubPreview.init();
   PlayerController.init();
 
   FocusEngine.init();
