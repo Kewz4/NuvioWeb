@@ -96,6 +96,17 @@ function invalidateContinueWatchingDisplaySnapshot() {
   LocalStore.set(CW_DISPLAY_SNAPSHOT_KEY, next);
 }
 
+function notifyWatchProgressChanged() {
+  if (!globalThis.document || typeof globalThis.CustomEvent !== "function") {
+    return;
+  }
+  try {
+    globalThis.document.dispatchEvent(new CustomEvent("nuvio:watch-progress-changed"));
+  } catch (_) {
+    // Non-browser repository consumers do not need Smart Hub notifications.
+  }
+}
+
 function isSeriesType(type) {
   const normalized = String(type || "").toLowerCase();
   return normalized === "series" || normalized === "tv";
@@ -547,6 +558,7 @@ class WatchProgressRepository {
       activeProfileId()
     );
     invalidateContinueWatchingDisplaySnapshot();
+    notifyWatchProgressChanged();
     queueWatchProgressCloudSync();
   }
 
@@ -585,6 +597,7 @@ class WatchProgressRepository {
       matchesProgressTarget(item, contentId, videoId)
     );
     WatchProgressStore.remove(contentId, videoId, pid);
+    notifyWatchProgressChanged();
     await deleteWatchProgressFromCloud(removedItems);
     invalidateContinueWatchingDisplaySnapshot();
     queueWatchProgressCloudSync();
@@ -657,6 +670,7 @@ class WatchProgressRepository {
   async replaceAll(items) {
     WatchProgressStore.replaceForProfile(activeProfileId(), items || []);
     invalidateContinueWatchingDisplaySnapshot();
+    notifyWatchProgressChanged();
   }
 }
 

@@ -22,6 +22,7 @@ const defaultTizenAppId = "NuvioTV001.NuvioTV";
 const defaultWidgetUri = "https://nuvio.tv";
 const tizenEngineFsServiceRelativePath = "services/tizen/enginefs-service.js";
 const tizenEngineFsRuntimeDirRelativePath = "services/tizen/runtime";
+const tizenSmartHubPreviewServiceRelativePath = "services/tizen/smart-hub-preview-service.js";
 
 function normalizeVersion(version) {
   const parts = String(version || "0.0.0")
@@ -53,6 +54,7 @@ async function assertDistExists() {
 
 function buildConfigXml({ appId, packageId, version }) {
   const engineFsServiceId = `${packageId}.EngineFsService`;
+  const previewServiceId = `${packageId}.SmartHubPreviewService`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <widget xmlns:tizen="http://tizen.org/ns/widgets" xmlns="http://www.w3.org/ns/widgets" id="${defaultWidgetUri}" version="${version}" viewmodes="maximized">
   <access origin="*" subdomains="true"/>
@@ -66,6 +68,21 @@ function buildConfigXml({ appId, packageId, version }) {
   <tizen:privilege name="http://tizen.org/privilege/internet"/>
   <tizen:privilege name="http://developer.samsung.com/privilege/network.public"/>
   <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+  <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+  <tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
+  <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
+  <tizen:metadata key="http://samsung.com/tv/metadata/use.preview" value="bg_service"/>
+  <tizen:app-control>
+    <tizen:src name="index.html" reload="disable"/>
+    <tizen:operation name="http://samsung.com/appcontrol/operation/eden_resume"/>
+  </tizen:app-control>
+  <tizen:service id="${previewServiceId}" auto-restart="false" on-boot="false">
+    <tizen:content src="${tizenSmartHubPreviewServiceRelativePath}"/>
+    <tizen:name>Nuvio Smart Hub Preview Service</tizen:name>
+    <tizen:icon src="icon.png"/>
+    <tizen:description>Personalized launcher content for Nuvio</tizen:description>
+    <tizen:category name="http://tizen.org/category/service"/>
+  </tizen:service>
   <tizen:service id="${engineFsServiceId}" auto-restart="true" on-boot="false">
     <tizen:content src="${tizenEngineFsServiceRelativePath}"/>
     <tizen:name>Nuvio EngineFS Service</tizen:name>
@@ -105,6 +122,7 @@ function buildIndexHtml() {
 
 function buildMainJs({ packageId }) {
   const engineFsServiceId = `${packageId}.EngineFsService`;
+  const previewServiceId = `${packageId}.SmartHubPreviewService`;
   const compatibilityOptions = JSON.stringify({
     platform: "tizen",
     minVersion: Number.parseInt(compatibilityPolicy.tizenRequiredVersion, 10),
@@ -113,6 +131,7 @@ function buildMainJs({ packageId }) {
   });
   return `window.__NUVIO_PLATFORM__ = "tizen";
 window.__NUVIO_TIZEN_ENGINEFS_SERVICE_ID__ = ${JSON.stringify(engineFsServiceId)};
+window.__NUVIO_TIZEN_PREVIEW_SERVICE_ID__ = ${JSON.stringify(previewServiceId)};
 
 var tvInput = window.tizen && window.tizen.tvinputdevice;
 if (tvInput && typeof tvInput.registerKey === "function") {
@@ -164,7 +183,7 @@ if (window.NuvioBootGuard && typeof window.NuvioBootGuard.runCompatibilityGate =
 `;
 }
 
-async function stageTizenEngineFsService() {
+async function stageTizenServices() {
   const serviceDir = path.join(stagingDir, "services", "tizen");
   await mkdir(serviceDir, { recursive: true });
   await Promise.all([
@@ -176,6 +195,10 @@ async function stageTizenEngineFsService() {
       path.join(rootDir, "services", "tizen", "runtime"),
       path.join(stagingDir, tizenEngineFsRuntimeDirRelativePath),
       { recursive: true }
+    ),
+    cp(
+      path.join(rootDir, tizenSmartHubPreviewServiceRelativePath),
+      path.join(stagingDir, tizenSmartHubPreviewServiceRelativePath)
     )
   ]);
 }
@@ -209,7 +232,7 @@ async function stagePackage({ appId, packageId, version, envSourcePath }) {
     writeFile(path.join(stagingDir, "index.html"), buildIndexHtml(), "utf8"),
     writeFile(path.join(stagingDir, "main.js"), buildMainJs({ packageId }), "utf8")
   ]);
-  await stageTizenEngineFsService();
+  await stageTizenServices();
 
   if (envSourcePath) {
     await writeRuntimeEnvScriptFile(path.join(stagingDir, "nuvio.env.js"), {
