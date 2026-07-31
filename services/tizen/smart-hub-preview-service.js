@@ -2,10 +2,41 @@
 "use strict";
 
 var SERVICE_TAG = "[Nuvio Smart Hub Preview]";
-var SNAPSHOT_FILE = "smart-hub-preview.json";
+var PENDING_SNAPSHOT_FILE = "smart-hub-preview.pending.json";
+var SNAPSHOT_FILE = "smart-hub-preview.last-good.json";
 var TIMESTAMP_FILE = "smart-hub-preview-timestamp.json";
 var PRIVATE_DIR = "wgt-private";
 var MIN_UPDATE_INTERVAL_MS = 10 * 60 * 1000;
+var FALLBACK_PREVIEW_DATA = {
+  sections: [
+    {
+      title: "Nuvio TV",
+      title_display_mode: "AlwaysOn",
+      tiles: [
+        {
+          title: "Studios",
+          subtitle: "Explorar Marvel",
+          image_ratio: "16by9",
+          image_url:
+            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/studios-marvel.jpg",
+          action_data:
+            '{"nuvioPreview":1,"kind":"collection-folder","source":"fallback","collectionId":"b9a327ea-1e13-47d7-a623-0324f08dac6b","folderId":"52e31de1-783d-4e6e-b388-8b67c30465ba","collectionTitle":"Studios","title":"Marvel"}',
+          is_playable: false
+        },
+        {
+          title: "Streaming",
+          subtitle: "Explorar Netflix",
+          image_ratio: "16by9",
+          image_url:
+            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/streaming-netflix.jpg",
+          action_data:
+            '{"nuvioPreview":1,"kind":"collection-folder","source":"fallback","collectionId":"5bcee819-c48e-4d74-b740-f43c24281a87","folderId":"ec4fd26a-ecee-48f1-9be2-a8d5f5eb2821","collectionTitle":"Streaming","title":"Netflix"}',
+          is_playable: false
+        }
+      ]
+    }
+  ]
+};
 
 function log() {
   var args = Array.prototype.slice.call(arguments);
@@ -101,27 +132,19 @@ function parseJson(value, fallback) {
   }
 }
 
-function findIncomingPreviewData() {
-  try {
-    var requested = tizen.application.getCurrentApplication().getRequestedAppControl();
-    var data = requested && requested.appControl && requested.appControl.data;
-    if (!Array.isArray(data)) {
-      return null;
-    }
-    for (var index = 0; index < data.length; index += 1) {
-      if (String(data[index].key || "") !== "previewData") {
-        continue;
-      }
-      var value = data[index].value && data[index].value[0];
-      var parsed = parseJson(value, null);
-      if (parsed && Array.isArray(parsed.sections) && parsed.sections.length) {
-        return parsed;
-      }
-    }
-  } catch (error) {
-    warn("incoming preview read failed", error);
+function isValidPreviewData(value) {
+  if (!value || !Array.isArray(value.sections) || !value.sections.length) {
+    return false;
   }
-  return null;
+  var tileCount = 0;
+  for (var sectionIndex = 0; sectionIndex < value.sections.length; sectionIndex += 1) {
+    var tiles = value.sections[sectionIndex] && value.sections[sectionIndex].tiles;
+    if (!Array.isArray(tiles) || !tiles.length) {
+      return false;
+    }
+    tileCount += tiles.length;
+  }
+  return tileCount > 0 && tileCount <= 40;
 }
 
 function setPreviewData(previewData, dir) {
@@ -152,30 +175,38 @@ function setPreviewData(previewData, dir) {
 }
 
 function updatePreview() {
-  var incoming = findIncomingPreviewData();
   return resolvePrivateDir().then(function (dir) {
-    var saveIncoming = incoming
-      ? writeFile(dir, SNAPSHOT_FILE, JSON.stringify(incoming)).catch(function (error) {
-          warn("snapshot save failed", error);
-        })
-      : Promise.resolve();
-    return saveIncoming.then(function () {
-      return Promise.all([
-        incoming ? Promise.resolve(JSON.stringify(incoming)) : readFile(dir, SNAPSHOT_FILE),
-        readFile(dir, TIMESTAMP_FILE)
-      ]).then(function (values) {
-        var previewData = parseJson(values[0], null);
-        var timestamp = parseJson(values[1], { updatedAt: 0 });
-        var lastUpdated = Number(timestamp && timestamp.updatedAt ? timestamp.updatedAt : 0);
-        if (!previewData || !Array.isArray(previewData.sections) || !previewData.sections.length) {
-          log("no saved preview data yet");
-          return false;
+    return Promise.all([
+      readFile(dir, PENDING_SNAPSHOT_FILE),
+      readFile(dir, SNAPSHOT_FILE),
+      readFile(dir, TIMESTAMP_FILE)
+    ]).then(function (values) {
+      var pending = parseJson(values[0], null);
+      var lastGood = parseJson(values[1], null);
+      var previewData = isValidPreviewData(pending)
+        ? pending
+        : isValidPreviewData(lastGood)
+          ? lastGood
+          : FALLBACK_PREVIEW_DATA;
+      var shouldPromote = isValidPreviewData(pending);
+      var timestamp = parseJson(values[2], { updatedAt: 0 });
+      var lastUpdated = Number(timestamp && timestamp.updatedAt ? timestamp.updatedAt : 0);
+      if (Date.now() - lastUpdated < MIN_UPDATE_INTERVAL_MS) {
+        log("preview snapshot retained; Samsung update interval still active");
+        return false;
+      }
+      return setPreviewData(previewData, dir).then(function (updated) {
+        if (!updated || !shouldPromote) {
+          return updated;
         }
-        if (Date.now() - lastUpdated < MIN_UPDATE_INTERVAL_MS) {
-          log("preview snapshot saved; Samsung update interval still active");
-          return false;
-        }
-        return setPreviewData(previewData, dir);
+        return writeFile(dir, SNAPSHOT_FILE, JSON.stringify(previewData))
+          .then(function () {
+            return true;
+          })
+          .catch(function (error) {
+            warn("last-good snapshot save failed", error);
+            return true;
+          });
       });
     });
   });

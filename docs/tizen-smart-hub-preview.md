@@ -9,14 +9,16 @@ The preview contains at most 21 tiles in this order:
 1. **Continuar viendo** — 3 titles from the active Nuvio profile.
 2. **Porque viste · Películas** — 2 live Xperience results.
 3. **Porque viste · Series** — 2 live Xperience results.
-4. **Top 100 hoy · Películas** — 2 live Xperience results.
-5. **Top 100 hoy · Series** — 2 live Xperience results.
+4. **Top 10 de Netflix · Películas** — 2 live Xperience results.
+5. **Top 10 de Netflix · Series** — 2 live Xperience results.
 6. **Studios** — Marvel, DC, A24, Pixar, and Disney Animated.
 7. **Streaming** — Netflix, Prime Video, Disney+, HBO Max, and Apple TV+.
 
 Media tiles deep-link to their Nuvio detail screen. Continue Watching tiles pass the saved
 episode and resume state so Nuvio can continue playback. Collection tiles open the imported
 Xperience folder when it exists and otherwise open that folder's primary movie catalog.
+Samsung's Tizen 6.5 launcher flattens the sections into one strip, so every visible tile title is
+prefixed with its category and configured with `title_display_mode: "AlwaysOn"`.
 
 ## Building
 

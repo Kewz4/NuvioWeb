@@ -12,6 +12,8 @@ import {
 
 const PREVIEW_OPERATION = "http://tizen.org/appcontrol/operation/pick";
 const WEB_SERVICE_FEATURE = "http://tizen.org/feature/web.service";
+const PREVIEW_SNAPSHOT_FILE = "smart-hub-preview.pending.json";
+const PRIVATE_STORAGE_ROOT = "wgt-private";
 const BLOCKING_ROUTES = new Set(["", "authQrSignIn", "authSignIn", "syncCode", "profileSelection"]);
 
 let initialized = false;
@@ -37,12 +39,76 @@ function isPersonalPreviewSupported() {
   try {
     const capability = tizen.systeminfo?.getCapability?.(WEB_SERVICE_FEATURE);
     if (capability === false) {
-      return false;
+      if (globalThis.__NUVIO_TIZEN_PREVIEW_ALLOW_FALSE_CAPABILITY__ !== true) {
+        console.warn("[SmartHubPreview] Web service capability is unavailable");
+        return false;
+      }
+      // The Tizen 6.5 TV emulator reports a false negative. Emulator builds
+      // opt in explicitly instead of weakening this gate for released TVs.
+      console.warn("[SmartHubPreview] Using the emulator capability override");
     }
   } catch (_) {
     // Older supported TVs can omit the capability lookup but still expose services.
   }
   return true;
+}
+
+function writePreviewSnapshot(previewData) {
+  const tizen = getTizenApi();
+  if (!tizen?.filesystem || !previewData?.sections?.length) {
+    return Promise.resolve(false);
+  }
+  let contents = "";
+  try {
+    contents = JSON.stringify(previewData);
+  } catch (error) {
+    console.warn("[SmartHubPreview] Snapshot serialization failed", error);
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    tizen.filesystem.resolve(
+      PRIVATE_STORAGE_ROOT,
+      (dir) => {
+        let file;
+        try {
+          file = dir.resolve(PREVIEW_SNAPSHOT_FILE);
+        } catch (_) {
+          try {
+            file = dir.createFile(PREVIEW_SNAPSHOT_FILE);
+          } catch (error) {
+            console.warn("[SmartHubPreview] Snapshot file creation failed", error);
+            resolve(false);
+            return;
+          }
+        }
+        file.openStream(
+          "w",
+          (stream) => {
+            try {
+              stream.write(contents);
+              stream.close();
+              resolve(true);
+            } catch (error) {
+              try {
+                stream.close();
+              } catch (_) {}
+              console.warn("[SmartHubPreview] Snapshot write failed", error);
+              resolve(false);
+            }
+          },
+          (error) => {
+            console.warn("[SmartHubPreview] Snapshot stream failed", error);
+            resolve(false);
+          }
+        );
+      },
+      (error) => {
+        console.warn("[SmartHubPreview] Private storage resolve failed", error);
+        resolve(false);
+      },
+      "rw"
+    );
+  });
 }
 
 function manifestBaseUrl() {
@@ -75,7 +141,7 @@ async function loadXperienceCatalogSections(addon) {
 async function buildPreviewData() {
   const [continueWatching, manifestResult] = await Promise.all([
     watchProgressRepository
-      .getRecent(SMART_HUB_PREVIEW_CONFIG.continueWatchingLimit)
+      .getRecent(SMART_HUB_PREVIEW_CONFIG.continueWatchingCandidateLimit)
       .catch((error) => {
         console.warn("[SmartHubPreview] Continue Watching load failed", error);
         return [];
@@ -103,6 +169,7 @@ async function buildPreviewData() {
   });
   return buildSmartHubPreviewPayload({
     continueWatching,
+    continueWatchingLimit: SMART_HUB_PREVIEW_CONFIG.continueWatchingLimit,
     catalogSections,
     folderSections: SMART_HUB_PREVIEW_CONFIG.folderSections,
     addon: {
@@ -113,20 +180,20 @@ async function buildPreviewData() {
   });
 }
 
-function launchPreviewService(previewData) {
+async function launchPreviewService(previewData) {
   const tizen = getTizenApi();
   const serviceId = String(
     globalThis.__NUVIO_TIZEN_PREVIEW_SERVICE_ID__ || "NuvioTV001.SmartHubPreviewService"
   ).trim();
   if (!serviceId || !previewData?.sections?.length) {
-    return Promise.resolve(false);
+    return false;
+  }
+  if (!(await writePreviewSnapshot(previewData))) {
+    return false;
   }
   return new Promise((resolve) => {
     try {
-      const data = [
-        new tizen.ApplicationControlData("caller", ["NuvioForeground"]),
-        new tizen.ApplicationControlData("previewData", [JSON.stringify(previewData)])
-      ];
+      const data = [new tizen.ApplicationControlData("caller", ["ForegroundApp"])];
       const appControl = new tizen.ApplicationControl(
         PREVIEW_OPERATION,
         null,

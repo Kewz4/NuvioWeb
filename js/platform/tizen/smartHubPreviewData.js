@@ -26,7 +26,14 @@ function isSeriesType(value) {
 
 export function isSupportedPreviewImageUrl(value) {
   const normalized = String(value || "").trim();
-  return /^https?:\/\/.+\.(?:jpe?g|png)(?:[?#].*)?$/i.test(normalized);
+  if (/^https?:\/\/.+\.(?:jpe?g|png)(?:[?#].*)?$/i.test(normalized)) {
+    return true;
+  }
+  // Cinemeta serves its poster/backdrop/logo images from this verified host
+  // with an extensionless `/img` suffix.
+  return /^https:\/\/images\.metahub\.space\/(?:poster|background|logo)\/[^/?#]+\/[^/?#]+\/img(?:[?#].*)?$/i.test(
+    normalized
+  );
 }
 
 export function normalizePreviewImageUrl(value) {
@@ -66,6 +73,21 @@ function encodeAction(action = {}) {
     nuvioPreview: ACTION_VERSION,
     ...action
   });
+}
+
+function addVisibleSectionLabel(tile, sectionTitle) {
+  if (!tile) {
+    return null;
+  }
+  const label = firstNonEmpty(sectionTitle);
+  const itemTitle = firstNonEmpty(tile.title);
+  if (!label || !itemTitle) {
+    return tile;
+  }
+  return {
+    ...tile,
+    title: `${label} · ${itemTitle}`
+  };
 }
 
 function formatEpisodeSubtitle(item = {}) {
@@ -118,8 +140,7 @@ function buildContinueWatchingTile(item = {}, position = 0) {
       resumeProgressPercent: progressPercent,
       resumeVideoId: item.videoId || null,
       resumeSeason: numberOrNull(item.season ?? item.seasonNumber),
-      resumeEpisode: numberOrNull(item.episode ?? item.episodeNumber),
-      resumeStreamIdentity: item.streamIdentity || null
+      resumeEpisode: numberOrNull(item.episode ?? item.episodeNumber)
     }),
     is_playable: true,
     position
@@ -199,30 +220,38 @@ function trimToTileLimit(sections = []) {
 
 export function buildSmartHubPreviewPayload({
   continueWatching = [],
+  continueWatchingLimit = 3,
   catalogSections = [],
   folderSections = [],
   addon = {}
 } = {}) {
   const sections = [];
+  const continueSectionTitle = "Continuar viendo";
   const continueTiles = (Array.isArray(continueWatching) ? continueWatching : [])
     .map((item, index) => buildContinueWatchingTile(item, index))
-    .filter(Boolean);
+    .map((tile) => addVisibleSectionLabel(tile, continueSectionTitle))
+    .filter(Boolean)
+    .slice(0, Math.max(0, Number(continueWatchingLimit || 0)));
   if (continueTiles.length) {
     sections.push({
-      title: "Continuar viendo",
+      title: continueSectionTitle,
+      title_display_mode: "AlwaysOn",
       position: 0,
       tiles: continueTiles
     });
   }
 
   (Array.isArray(catalogSections) ? catalogSections : []).forEach((section, sectionIndex) => {
+    const sectionTitle = firstNonEmpty(section.title, "Xperience");
     const tiles = (Array.isArray(section.items) ? section.items : [])
-      .slice(0, Math.max(0, Number(section.limit || section.items.length || 0)))
       .map((item, index) => buildCatalogTile(item, index))
-      .filter(Boolean);
+      .map((tile) => addVisibleSectionLabel(tile, sectionTitle))
+      .filter(Boolean)
+      .slice(0, Math.max(0, Number(section.limit || section.items.length || 0)));
     if (tiles.length) {
       sections.push({
-        title: firstNonEmpty(section.title, "Xperience"),
+        title: sectionTitle,
+        title_display_mode: "AlwaysOn",
         position: sectionIndex + 1,
         tiles
       });
@@ -231,12 +260,15 @@ export function buildSmartHubPreviewPayload({
 
   const folderPositionOffset = 1 + (Array.isArray(catalogSections) ? catalogSections.length : 0);
   (Array.isArray(folderSections) ? folderSections : []).forEach((section, sectionIndex) => {
+    const sectionTitle = firstNonEmpty(section.title, "Colecciones");
     const tiles = (Array.isArray(section.shortcuts) ? section.shortcuts : [])
       .map((shortcut, index) => buildFolderTile(section, shortcut, index, addon))
+      .map((tile) => addVisibleSectionLabel(tile, sectionTitle))
       .filter(Boolean);
     if (tiles.length) {
       sections.push({
-        title: firstNonEmpty(section.title, "Colecciones"),
+        title: sectionTitle,
+        title_display_mode: "AlwaysOn",
         position: folderPositionOffset + sectionIndex,
         tiles
       });

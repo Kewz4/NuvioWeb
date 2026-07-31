@@ -71,7 +71,9 @@ function buildConfigXml({ appId, packageId, version }) {
   <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
   <tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
   <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
+  <tizen:metadata key="http://samsung.com/tv/metadata/devel.api.version" value="5.0"/>
   <tizen:metadata key="http://samsung.com/tv/metadata/use.preview" value="bg_service"/>
+  <tizen:metadata key="http://samsung.com/tv/metadata/prelaunch.support" value="true"/>
   <tizen:app-control>
     <tizen:src name="index.html" reload="disable"/>
     <tizen:operation name="http://samsung.com/appcontrol/operation/eden_resume"/>

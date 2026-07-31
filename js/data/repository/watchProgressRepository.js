@@ -512,6 +512,24 @@ async function fetchTraktProgressSnapshot() {
 const enrichedMetaCache = new Map();
 const ENRICHED_META_CACHE_TTL_MS = 5 * 60 * 1000;
 
+export function unwrapMetaRepositoryResult(result) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+
+  const meta = result.status === "success" ? result.data : result;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+    return null;
+  }
+
+  // Repository failures use the same result envelope as successes. Never
+  // mistake an error response for metadata when accepting a raw-meta fallback.
+  if (result.status != null && result.status !== "success") {
+    return null;
+  }
+  return meta;
+}
+
 async function batchEnrichProgressItems(items) {
   if (!items.length) return [];
   const now = Date.now();
@@ -525,11 +543,12 @@ async function batchEnrichProgressItems(items) {
         meta = cached.meta;
       } else {
         const canonicalType = item.contentType === "series" ? "series" : "movie";
-        meta = await withTimeout(
+        const result = await withTimeout(
           metaRepository.getMetaFromAllAddons(canonicalType, lookupId),
           PROGRESS_META_TIMEOUT_MS,
           null
         ).catch(() => null);
+        meta = unwrapMetaRepositoryResult(result);
         // Only cache real metadata. Caching a null (timeout/miss) would leave the
         // item unenriched for the full TTL after a single slow response.
         if (meta) {
