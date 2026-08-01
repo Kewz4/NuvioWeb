@@ -2,7 +2,7 @@ const PREVIEW_ASSET_BASE_URL =
   "https://raw.githubusercontent.com/Kewz4/NuvioWeb/codex/smart-hub-preview/assets/smart-hub-preview";
 
 function previewAssetUrl(fileName) {
-  return `${PREVIEW_ASSET_BASE_URL}/${fileName}?v=baseline-20260801`;
+  return `${PREVIEW_ASSET_BASE_URL}/${fileName}?v=baseline-20260801b`;
 }
 
 export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
