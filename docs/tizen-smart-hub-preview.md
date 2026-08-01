@@ -20,6 +20,12 @@ Xperience folder when it exists and otherwise open that folder's primary movie c
 Samsung's Tizen 6.5 launcher flattens the sections into one strip, so every visible tile title is
 prefixed with its category and configured with `title_display_mode: "AlwaysOn"`.
 
+The foreground app sends each personalized snapshot to the preview service through both
+AppControl data and package-private storage. The service keeps the last valid personalized
+snapshot; it never replaces missing data with generic placeholder cards. Some AU8000 firmware
+versions report the web-service capability as unavailable even though the service works, so the
+packaged app verifies the real model before allowing that known false-negative.
+
 ## Building
 
 ```sh

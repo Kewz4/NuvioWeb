@@ -6,37 +6,8 @@ var PENDING_SNAPSHOT_FILE = "smart-hub-preview.pending.json";
 var SNAPSHOT_FILE = "smart-hub-preview.last-good.json";
 var TIMESTAMP_FILE = "smart-hub-preview-timestamp.json";
 var PRIVATE_DIR = "wgt-private";
+var PREVIEW_APP_CONTROL_DATA_KEY = "previewData";
 var MIN_UPDATE_INTERVAL_MS = 10 * 60 * 1000;
-var FALLBACK_PREVIEW_DATA = {
-  sections: [
-    {
-      title: "Nuvio TV",
-      title_display_mode: "AlwaysOn",
-      tiles: [
-        {
-          title: "Studios",
-          subtitle: "Explorar Marvel",
-          image_ratio: "16by9",
-          image_url:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/studios-marvel.jpg",
-          action_data:
-            '{"nuvioPreview":1,"kind":"collection-folder","source":"fallback","collectionId":"b9a327ea-1e13-47d7-a623-0324f08dac6b","folderId":"52e31de1-783d-4e6e-b388-8b67c30465ba","collectionTitle":"Studios","title":"Marvel"}',
-          is_playable: false
-        },
-        {
-          title: "Streaming",
-          subtitle: "Explorar Netflix",
-          image_ratio: "16by9",
-          image_url:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/streaming-netflix.jpg",
-          action_data:
-            '{"nuvioPreview":1,"kind":"collection-folder","source":"fallback","collectionId":"5bcee819-c48e-4d74-b740-f43c24281a87","folderId":"ec4fd26a-ecee-48f1-9be2-a8d5f5eb2821","collectionTitle":"Streaming","title":"Netflix"}',
-          is_playable: false
-        }
-      ]
-    }
-  ]
-};
 
 function log() {
   var args = Array.prototype.slice.call(arguments);
@@ -132,6 +103,30 @@ function parseJson(value, fallback) {
   }
 }
 
+function findIncomingPreviewData() {
+  try {
+    var requestedAppControl = tizen.application.getCurrentApplication().getRequestedAppControl();
+    var data =
+      requestedAppControl && requestedAppControl.appControl
+        ? requestedAppControl.appControl.data
+        : null;
+    if (!Array.isArray(data)) {
+      return null;
+    }
+    for (var index = 0; index < data.length; index += 1) {
+      var entry = data[index];
+      if (String(entry && entry.key ? entry.key : "") !== PREVIEW_APP_CONTROL_DATA_KEY) {
+        continue;
+      }
+      var chunks = entry && Array.isArray(entry.value) ? entry.value : [];
+      return parseJson(chunks.join(""), null);
+    }
+  } catch (error) {
+    warn("incoming preview read failed", error);
+  }
+  return null;
+}
+
 function isValidPreviewData(value) {
   if (!value || !Array.isArray(value.sections) || !value.sections.length) {
     return false;
@@ -175,38 +170,44 @@ function setPreviewData(previewData, dir) {
 }
 
 function updatePreview() {
+  var incoming = findIncomingPreviewData();
   return resolvePrivateDir().then(function (dir) {
     return Promise.all([
       readFile(dir, PENDING_SNAPSHOT_FILE),
       readFile(dir, SNAPSHOT_FILE),
       readFile(dir, TIMESTAMP_FILE)
     ]).then(function (values) {
-      var pending = parseJson(values[0], null);
+      var storedPending = parseJson(values[0], null);
+      var pending = isValidPreviewData(incoming) ? incoming : storedPending;
       var lastGood = parseJson(values[1], null);
       var previewData = isValidPreviewData(pending)
         ? pending
         : isValidPreviewData(lastGood)
           ? lastGood
-          : FALLBACK_PREVIEW_DATA;
+          : null;
       var shouldPromote = isValidPreviewData(pending);
       var timestamp = parseJson(values[2], { updatedAt: 0 });
       var lastUpdated = Number(timestamp && timestamp.updatedAt ? timestamp.updatedAt : 0);
-      if (Date.now() - lastUpdated < MIN_UPDATE_INTERVAL_MS) {
-        log("preview snapshot retained; Samsung update interval still active");
+      if (!previewData) {
+        log("no personalized snapshot available; leaving the existing preview unchanged");
         return false;
       }
-      return setPreviewData(previewData, dir).then(function (updated) {
-        if (!updated || !shouldPromote) {
-          return updated;
-        }
-        return writeFile(dir, SNAPSHOT_FILE, JSON.stringify(previewData))
-          .then(function () {
-            return true;
+
+      var persistSnapshot = shouldPromote
+        ? Promise.all([
+            writeFile(dir, PENDING_SNAPSHOT_FILE, JSON.stringify(previewData)),
+            writeFile(dir, SNAPSHOT_FILE, JSON.stringify(previewData))
+          ]).catch(function (error) {
+            warn("personalized snapshot save failed", error);
           })
-          .catch(function (error) {
-            warn("last-good snapshot save failed", error);
-            return true;
-          });
+        : Promise.resolve();
+
+      return persistSnapshot.then(function () {
+        if (Date.now() - lastUpdated < MIN_UPDATE_INTERVAL_MS) {
+          log("preview snapshot retained; Samsung update interval still active");
+          return false;
+        }
+        return setPreviewData(previewData, dir);
       });
     });
   });

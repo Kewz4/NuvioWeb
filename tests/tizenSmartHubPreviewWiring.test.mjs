@@ -15,24 +15,30 @@ const packageSource = await readFile(
   "utf8"
 );
 
-test("uses a shared private snapshot instead of embedding preview JSON in AppControl", () => {
+test("sends personalized data through AppControl with a shared snapshot fallback", () => {
   assert.match(foregroundSource, /smart-hub-preview\.pending\.json/);
   assert.match(serviceSource, /smart-hub-preview\.pending\.json/);
   assert.match(foregroundSource, /ApplicationControlData\("caller", \["ForegroundApp"\]\)/);
-  assert.doesNotMatch(foregroundSource, /ApplicationControlData\("previewData"/);
-  assert.doesNotMatch(serviceSource, /findIncomingPreviewData|key \|\| ""\) !== "previewData"/);
+  assert.match(foregroundSource, /PREVIEW_APP_CONTROL_DATA_KEY/);
+  assert.match(foregroundSource, /chunkPreviewData/);
+  assert.match(serviceSource, /findIncomingPreviewData/);
+  assert.match(serviceSource, /getRequestedAppControl/);
 });
 
-test("limits the false capability override to explicit emulator builds", () => {
+test("allows the known AU8000 capability false negative and explicit emulator builds", () => {
   assert.match(foregroundSource, /__NUVIO_TIZEN_PREVIEW_ALLOW_FALSE_CAPABILITY__/);
-  assert.match(foregroundSource, /Using the emulator capability override/);
+  assert.match(foregroundSource, /getRealModel/);
+  assert.match(foregroundSource, /AU8000/);
+  assert.match(foregroundSource, /Using the supported-device capability override/);
   assert.match(foregroundSource, /Web service capability is unavailable/);
 });
 
-test("packages Samsung personal-preview metadata and a last-known-good fallback", () => {
+test("packages Samsung personal-preview metadata without publishing fake fallback tiles", () => {
   assert.match(packageSource, /metadata\/devel\.api\.version" value="5\.0"/);
   assert.match(packageSource, /metadata\/use\.preview" value="bg_service"/);
   assert.match(packageSource, /metadata\/prelaunch\.support" value="true"/);
+  assert.match(packageSource, /privilege\/productinfo/);
   assert.match(serviceSource, /smart-hub-preview\.last-good\.json/);
-  assert.match(serviceSource, /FALLBACK_PREVIEW_DATA/);
+  assert.match(serviceSource, /leaving the existing preview unchanged/);
+  assert.doesNotMatch(serviceSource, /FALLBACK_PREVIEW_DATA/);
 });

@@ -12,6 +12,8 @@ import {
 
 const PREVIEW_OPERATION = "http://tizen.org/appcontrol/operation/pick";
 const WEB_SERVICE_FEATURE = "http://tizen.org/feature/web.service";
+const PREVIEW_APP_CONTROL_DATA_KEY = "previewData";
+const PREVIEW_APP_CONTROL_CHUNK_SIZE = 4096;
 const PREVIEW_SNAPSHOT_FILE = "smart-hub-preview.pending.json";
 const PRIVATE_STORAGE_ROOT = "wgt-private";
 const BLOCKING_ROUTES = new Set(["", "authQrSignIn", "authSignIn", "syncCode", "profileSelection"]);
@@ -28,6 +30,21 @@ function getTizenApi() {
   return globalThis.tizen || null;
 }
 
+function getTizenRealModel() {
+  try {
+    return String(globalThis.webapis?.productinfo?.getRealModel?.() || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+function allowsFalsePreviewCapability() {
+  if (globalThis.__NUVIO_TIZEN_PREVIEW_ALLOW_FALSE_CAPABILITY__ === true) {
+    return true;
+  }
+  return /AU8000/i.test(getTizenRealModel());
+}
+
 function isPersonalPreviewSupported() {
   if (!Platform.isTizen()) {
     return false;
@@ -39,13 +56,13 @@ function isPersonalPreviewSupported() {
   try {
     const capability = tizen.systeminfo?.getCapability?.(WEB_SERVICE_FEATURE);
     if (capability === false) {
-      if (globalThis.__NUVIO_TIZEN_PREVIEW_ALLOW_FALSE_CAPABILITY__ !== true) {
+      if (!allowsFalsePreviewCapability()) {
         console.warn("[SmartHubPreview] Web service capability is unavailable");
         return false;
       }
-      // The Tizen 6.5 TV emulator reports a false negative. Emulator builds
-      // opt in explicitly instead of weakening this gate for released TVs.
-      console.warn("[SmartHubPreview] Using the emulator capability override");
+      // The Tizen 6.5 emulator and some retail AU8000 firmware builds expose
+      // the service successfully while reporting this capability as false.
+      console.warn("[SmartHubPreview] Using the supported-device capability override");
     }
   } catch (_) {
     // Older supported TVs can omit the capability lookup but still expose services.
@@ -53,16 +70,34 @@ function isPersonalPreviewSupported() {
   return true;
 }
 
+function serializePreviewData(previewData) {
+  try {
+    return JSON.stringify(previewData);
+  } catch (error) {
+    console.warn("[SmartHubPreview] Snapshot serialization failed", error);
+    return "";
+  }
+}
+
+function chunkPreviewData(serializedPreviewData) {
+  const chunks = [];
+  for (
+    let offset = 0;
+    offset < serializedPreviewData.length;
+    offset += PREVIEW_APP_CONTROL_CHUNK_SIZE
+  ) {
+    chunks.push(serializedPreviewData.slice(offset, offset + PREVIEW_APP_CONTROL_CHUNK_SIZE));
+  }
+  return chunks;
+}
+
 function writePreviewSnapshot(previewData) {
   const tizen = getTizenApi();
   if (!tizen?.filesystem || !previewData?.sections?.length) {
     return Promise.resolve(false);
   }
-  let contents = "";
-  try {
-    contents = JSON.stringify(previewData);
-  } catch (error) {
-    console.warn("[SmartHubPreview] Snapshot serialization failed", error);
+  const contents = serializePreviewData(previewData);
+  if (!contents) {
     return Promise.resolve(false);
   }
   return new Promise((resolve) => {
@@ -188,12 +223,23 @@ async function launchPreviewService(previewData) {
   if (!serviceId || !previewData?.sections?.length) {
     return false;
   }
-  if (!(await writePreviewSnapshot(previewData))) {
+  const serializedPreviewData = serializePreviewData(previewData);
+  if (!serializedPreviewData) {
     return false;
+  }
+  const snapshotWritten = await writePreviewSnapshot(previewData);
+  if (!snapshotWritten) {
+    console.warn("[SmartHubPreview] Shared snapshot unavailable; using AppControl payload");
   }
   return new Promise((resolve) => {
     try {
-      const data = [new tizen.ApplicationControlData("caller", ["ForegroundApp"])];
+      const data = [
+        new tizen.ApplicationControlData("caller", ["ForegroundApp"]),
+        new tizen.ApplicationControlData(
+          PREVIEW_APP_CONTROL_DATA_KEY,
+          chunkPreviewData(serializedPreviewData)
+        )
+      ];
       const appControl = new tizen.ApplicationControl(
         PREVIEW_OPERATION,
         null,

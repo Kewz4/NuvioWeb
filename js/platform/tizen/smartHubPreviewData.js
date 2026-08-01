@@ -41,10 +41,12 @@ export function normalizePreviewImageUrl(value) {
   if (!isSupportedPreviewImageUrl(normalized)) {
     return "";
   }
-  return normalized.replace(
-    /^(https?:\/\/image\.tmdb\.org\/t\/p\/)(?:original|w\d+)(\/)/i,
-    "$1w500$2"
-  );
+  return normalized
+    .replace(/^(https?:\/\/image\.tmdb\.org\/t\/p\/)(?:original|w\d+)(\/)/i, "$1w500$2")
+    .replace(
+      /^(https:\/\/images\.metahub\.space\/(?:poster|background)\/)(?:original|large|medium)(\/)/i,
+      "$1small$2"
+    );
 }
 
 function resolvePreviewImage(item = {}) {
@@ -129,6 +131,7 @@ function buildContinueWatchingTile(item = {}, position = 0) {
     action_data: encodeAction({
       kind: "media",
       source: "continue-watching",
+      previewInstance: `continue-watching:${position}`,
       itemId,
       itemType,
       imdbId: item.imdbId || meta.imdbId || null,
@@ -147,7 +150,7 @@ function buildContinueWatchingTile(item = {}, position = 0) {
   };
 }
 
-function buildCatalogTile(item = {}, position = 0) {
+function buildCatalogTile(item = {}, position = 0, sectionKey = "catalog") {
   const itemId = firstNonEmpty(item.id, item.contentId);
   const itemType = isSeriesType(item.type || item.apiType) ? "series" : "movie";
   const image = resolvePreviewImage(item);
@@ -162,6 +165,7 @@ function buildCatalogTile(item = {}, position = 0) {
     action_data: encodeAction({
       kind: "media",
       source: "xperience",
+      previewInstance: `${sectionKey}:${position}`,
       itemId,
       itemType,
       title: firstNonEmpty(item.name, item.title, itemId)
@@ -172,21 +176,19 @@ function buildCatalogTile(item = {}, position = 0) {
 }
 
 function buildFolderTile(section = {}, shortcut = {}, position = 0, addon = {}) {
-  if (
-    !section.collectionId ||
-    !shortcut.folderId ||
-    !isSupportedPreviewImageUrl(shortcut.imageUrl)
-  ) {
+  const imageUrl = normalizePreviewImageUrl(shortcut.imageUrl);
+  if (!section.collectionId || !shortcut.folderId || !imageUrl) {
     return null;
   }
   return {
     title: firstNonEmpty(shortcut.title, "Colección"),
     subtitle: firstNonEmpty(section.title),
-    image_url: shortcut.imageUrl,
+    image_url: imageUrl,
     image_ratio: "16by9",
     action_data: encodeAction({
       kind: "collection-folder",
       source: "xperience",
+      previewInstance: `${firstNonEmpty(section.key, section.collectionId)}:${position}`,
       collectionId: section.collectionId,
       folderId: shortcut.folderId,
       collectionTitle: section.title || "",
@@ -244,7 +246,7 @@ export function buildSmartHubPreviewPayload({
   (Array.isArray(catalogSections) ? catalogSections : []).forEach((section, sectionIndex) => {
     const sectionTitle = firstNonEmpty(section.title, "Xperience");
     const tiles = (Array.isArray(section.items) ? section.items : [])
-      .map((item, index) => buildCatalogTile(item, index))
+      .map((item, index) => buildCatalogTile(item, index, firstNonEmpty(section.key, sectionTitle)))
       .map((tile) => addVisibleSectionLabel(tile, sectionTitle))
       .filter(Boolean)
       .slice(0, Math.max(0, Number(section.limit || section.items.length || 0)));

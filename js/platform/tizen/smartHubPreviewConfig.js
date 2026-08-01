@@ -1,3 +1,10 @@
+const PREVIEW_ASSET_BASE_URL =
+  "https://raw.githubusercontent.com/Kewz4/NuvioWeb/codex/smart-hub-preview/assets/smart-hub-preview";
+
+function previewAssetUrl(fileName) {
+  return `${PREVIEW_ASSET_BASE_URL}/${fileName}?v=baseline-20260801`;
+}
+
 export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
   addonId: "app.xperience.f6ca2edb-6f76-459f-b7dc-3510c2aeae86",
   addonName: "Xperience",
@@ -45,40 +52,35 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
         Object.freeze({
           title: "Marvel",
           folderId: "52e31de1-783d-4e6e-b388-8b67c30465ba",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/studios-marvel.jpg",
+          imageUrl: previewAssetUrl("studios-marvel.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "studio_marvel_movies"
         }),
         Object.freeze({
           title: "DC",
           folderId: "c12a28cf-088b-4ee0-a0fb-2172aab7bcb9",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/studios-dc.jpg",
+          imageUrl: previewAssetUrl("studios-dc.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "studio_dc_movies"
         }),
         Object.freeze({
           title: "A24",
           folderId: "2e1f0106-9dc5-459c-997c-ac06c63ee0a5",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/studios-a24.jpg",
+          imageUrl: previewAssetUrl("studios-a24.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "studio_a24_movies"
         }),
         Object.freeze({
           title: "Pixar",
           folderId: "317ca8c6-760d-416f-a531-dd6723140ec8",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/studios-pixar.jpg",
+          imageUrl: previewAssetUrl("studios-pixar.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "studio_pixar_movies"
         }),
         Object.freeze({
           title: "Disney Animated",
           folderId: "ee9e0c5a-4934-4945-8497-d128f6466a7a",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/studios-disney-animated.jpg",
+          imageUrl: previewAssetUrl("studios-disney-animated.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "studio_disney_animated_movies"
         })
@@ -92,40 +94,35 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
         Object.freeze({
           title: "Netflix",
           folderId: "ec4fd26a-ecee-48f1-9be2-a8d5f5eb2821",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/streaming-netflix.jpg",
+          imageUrl: previewAssetUrl("streaming-netflix.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "streaming_netflix_movies"
         }),
         Object.freeze({
           title: "Prime Video",
           folderId: "9063a10b-a55e-4ec2-a5a4-79f7c1f28370",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/streaming-prime-video.jpg",
+          imageUrl: previewAssetUrl("streaming-prime-video.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "streaming_prime_movies"
         }),
         Object.freeze({
           title: "Disney+",
           folderId: "ec4b312c-9a16-417c-8bc0-fa62ce8c85f2",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/streaming-disney-plus.jpg",
+          imageUrl: previewAssetUrl("streaming-disney-plus.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "streaming_disney_movies"
         }),
         Object.freeze({
           title: "HBO Max",
           folderId: "994d778e-226c-48a7-8413-ee835ad874d8",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/streaming-hbo-max.jpg",
+          imageUrl: previewAssetUrl("streaming-hbo-max.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "streaming_hbo_movies"
         }),
         Object.freeze({
           title: "Apple TV+",
           folderId: "ec45b0d2-f80f-4c30-bdb0-d33724744c0c",
-          imageUrl:
-            "https://raw.githubusercontent.com/Kewz4/NuvioWeb/main/assets/smart-hub-preview/streaming-apple-tv-plus.jpg",
+          imageUrl: previewAssetUrl("streaming-apple-tv-plus.jpg"),
           fallbackType: "movie",
           fallbackCatalogId: "streaming_apple_movies"
         })

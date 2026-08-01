@@ -68,6 +68,10 @@ test("builds the requested 21-tile Smart Hub layout in priority order", () => {
     payload.sections.reduce((sum, section) => sum + section.tiles.length, 0),
     21
   );
+  const actionData = payload.sections.flatMap((section) =>
+    section.tiles.map((tile) => tile.action_data)
+  );
+  assert.equal(new Set(actionData).size, actionData.length);
   assert.equal(JSON.parse(payload.sections[0].tiles[0].action_data).source, "continue-watching");
   assert.equal(JSON.parse(payload.sections[1].tiles[0].action_data).source, "xperience");
   assert.equal(JSON.parse(payload.sections[5].tiles[0].action_data).kind, "collection-folder");
@@ -108,6 +112,10 @@ test("accepts only image formats supported by Samsung Smart Hub Preview", () => 
     normalizePreviewImageUrl("https://image.tmdb.org/t/p/w1280/example.jpg"),
     "https://image.tmdb.org/t/p/w500/example.jpg"
   );
+  assert.equal(
+    normalizePreviewImageUrl("https://images.metahub.space/background/medium/tt0133093/img"),
+    "https://images.metahub.space/background/small/tt0133093/img"
+  );
 });
 
 test("uses Cinemeta artwork without leaking stream identity into preview actions", () => {
@@ -126,8 +134,27 @@ test("uses Cinemeta artwork without leaking stream identity into preview actions
   });
 
   const tile = payload.sections[0].tiles[0];
-  assert.equal(tile.image_url, "https://images.metahub.space/background/medium/tt0133093/img");
+  assert.equal(tile.image_url, "https://images.metahub.space/background/small/tt0133093/img");
   assert.equal(Object.hasOwn(JSON.parse(tile.action_data), "resumeStreamIdentity"), false);
+});
+
+test("makes repeated media deep links unique across catalog rows", () => {
+  const repeatedItem = mediaItem("tt-same");
+  const payload = buildSmartHubPreviewPayload({
+    catalogSections: [
+      { key: "row-a", title: "Fila A", type: "movie", limit: 1, items: [repeatedItem] },
+      { key: "row-b", title: "Fila B", type: "movie", limit: 1, items: [repeatedItem] }
+    ]
+  });
+
+  const firstAction = JSON.parse(payload.sections[0].tiles[0].action_data);
+  const secondAction = JSON.parse(payload.sections[1].tiles[0].action_data);
+  assert.equal(firstAction.itemId, secondAction.itemId);
+  assert.notEqual(firstAction.previewInstance, secondAction.previewInstance);
+  assert.notEqual(
+    payload.sections[0].tiles[0].action_data,
+    payload.sections[1].tiles[0].action_data
+  );
 });
 
 test("backfills requested rows after skipping candidates without supported artwork", () => {
