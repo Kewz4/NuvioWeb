@@ -10,6 +10,7 @@ import {
 import { TraktAuthStore } from "../local/traktAuthStore.js";
 import { TraktAuthService } from "./traktAuthService.js";
 import { metaRepository } from "./metaRepository.js";
+import { mapWithConcurrency } from "../../core/network/mapWithConcurrency.js";
 import {
   WATCH_PROGRESS_COMPLETED_THRESHOLD,
   WATCH_PROGRESS_STARTED_THRESHOLD,
@@ -29,6 +30,7 @@ const CW_PROGRESS_END_THRESHOLD = WATCH_PROGRESS_COMPLETED_THRESHOLD;
 // generous — only a genuinely stuck request is abandoned.
 const TRAKT_API_TIMEOUT_MS = 10000;
 const PROGRESS_META_TIMEOUT_MS = 8000;
+const PROGRESS_META_CONCURRENCY = 4;
 
 function withTimeout(promise, ms, fallback) {
   let timer = null;
@@ -533,31 +535,29 @@ export function unwrapMetaRepositoryResult(result) {
 async function batchEnrichProgressItems(items) {
   if (!items.length) return [];
   const now = Date.now();
-  return Promise.all(
-    items.map(async (item) => {
-      const lookupId = item.imdbId || item.contentId;
-      const cacheKey = `${item.contentType}:${lookupId}`;
-      const cached = enrichedMetaCache.get(cacheKey);
-      let meta = null;
-      if (cached && now - cached.timestamp < ENRICHED_META_CACHE_TTL_MS) {
-        meta = cached.meta;
-      } else {
-        const canonicalType = item.contentType === "series" ? "series" : "movie";
-        const result = await withTimeout(
-          metaRepository.getMetaFromAllAddons(canonicalType, lookupId),
-          PROGRESS_META_TIMEOUT_MS,
-          null
-        ).catch(() => null);
-        meta = unwrapMetaRepositoryResult(result);
-        // Only cache real metadata. Caching a null (timeout/miss) would leave the
-        // item unenriched for the full TTL after a single slow response.
-        if (meta) {
-          enrichedMetaCache.set(cacheKey, { meta, timestamp: now });
-        }
+  return mapWithConcurrency(items, PROGRESS_META_CONCURRENCY, async (item) => {
+    const lookupId = item.imdbId || item.contentId;
+    const cacheKey = `${item.contentType}:${lookupId}`;
+    const cached = enrichedMetaCache.get(cacheKey);
+    let meta = null;
+    if (cached && now - cached.timestamp < ENRICHED_META_CACHE_TTL_MS) {
+      meta = cached.meta;
+    } else {
+      const canonicalType = item.contentType === "series" ? "series" : "movie";
+      const result = await withTimeout(
+        metaRepository.getMetaFromAllAddons(canonicalType, lookupId),
+        PROGRESS_META_TIMEOUT_MS,
+        null
+      ).catch(() => null);
+      meta = unwrapMetaRepositoryResult(result);
+      // Only cache real metadata. Caching a null (timeout/miss) would leave the
+      // item unenriched for the full TTL after a single slow response.
+      if (meta) {
+        enrichedMetaCache.set(cacheKey, { meta, timestamp: now });
       }
-      return meta ? { ...item, enrichedMeta: meta } : item;
-    })
-  );
+    }
+    return meta ? { ...item, enrichedMeta: meta } : item;
+  });
 }
 
 class WatchProgressRepository {
@@ -597,7 +597,7 @@ class WatchProgressRepository {
       selectedContinueWatchingSource() === WatchProgressSource.TRAKT &&
       TraktAuthStore.isAuthenticated()
     ) {
-      sourceItems = await this.getRecent(300).catch((error) => {
+      sourceItems = await this.getRecent(300, { enrichMetadata: false }).catch((error) => {
         console.warn("[CW] Resume lookup failed", error);
         return sourceItems;
       });
@@ -622,7 +622,7 @@ class WatchProgressRepository {
     queueWatchProgressCloudSync();
   }
 
-  async getRecent(limit = 30) {
+  async getRecent(limit = 30, { enrichMetadata = true } = {}) {
     const now = Date.now();
     const useTraktProgress = selectedContinueWatchingSource() === WatchProgressSource.TRAKT;
     const daysCap = normalizeTraktContinueWatchingDaysCap(
@@ -656,8 +656,8 @@ class WatchProgressRepository {
 
     const inProgressOnly = deduplicateInProgress(recentItems);
 
-    const enrichedItems = await batchEnrichProgressItems(inProgressOnly.slice(0, limit));
-    return enrichedItems;
+    const limitedItems = inProgressOnly.slice(0, limit);
+    return enrichMetadata ? batchEnrichProgressItems(limitedItems) : limitedItems;
   }
 
   async getAll() {

@@ -11,6 +11,7 @@ import { TmdbService } from "../../../core/tmdb/tmdbService.js";
 import { TmdbMetadataService } from "../../../core/tmdb/tmdbMetadataService.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { imdbEpisodeRatingsRepository } from "../../../data/repository/imdbEpisodeRatingsRepository.js";
+import { normalizeEpisodeImdbRating, parseEpisodeRuntimeMinutes } from "./episodeCardMetadata.js";
 import { mdbListRepository } from "../../../data/repository/mdbListRepository.js";
 import { TmdbSettingsStore } from "../../../data/local/tmdbSettingsStore.js";
 import { PlayerSettingsStore } from "../../../data/local/playerSettingsStore.js";
@@ -27,6 +28,7 @@ import {
 import { I18n } from "../../../i18n/index.js";
 import { NuvioDialog } from "../../components/nuvioDialog.js";
 import { renderLoadingIndicator } from "../../components/loadingIndicator.js";
+import { resolveMovieStreamIdentity } from "./movieStreamIdentity.js";
 import {
   posterItemFromNode,
   PosterOptionsDialogController
@@ -173,8 +175,8 @@ function resolveSeasonEpisode(video = {}) {
 
 function toEpisodeEntry(video = {}) {
   const { season, episode } = resolveSeasonEpisode(video);
-  const runtimeMinutes = Number(
-    video.runtime || video.runtimeMinutes || video.durationMinutes || video.duration || 0
+  const runtimeMinutes = parseEpisodeRuntimeMinutes(
+    video.runtime || video.runtimeMinutes || video.durationMinutes || video.duration
   );
   return {
     id: video.id || "",
@@ -183,7 +185,7 @@ function toEpisodeEntry(video = {}) {
     episode,
     thumbnail: video.thumbnail || null,
     overview: video.overview || video.description || "",
-    runtimeMinutes: Number.isFinite(runtimeMinutes) && runtimeMinutes > 0 ? runtimeMinutes : 0,
+    runtimeMinutes,
     released:
       video.released ||
       video.releaseDate ||
@@ -740,13 +742,11 @@ function resolveEpisodeImdbRating(episode = {}, seriesRatingsBySeason = {}) {
   const seasonRating = seriesRatingsBySeason?.[episode.season]?.find(
     (entry) => Number(entry?.episode || 0) === Number(episode.episode || 0)
   )?.rating;
-  if (seasonRating != null && String(seasonRating).trim() !== "") {
-    return seasonRating;
+  const normalizedSeasonRating = normalizeEpisodeImdbRating(seasonRating);
+  if (normalizedSeasonRating != null) {
+    return normalizedSeasonRating;
   }
-  if (episode?.imdbRating != null && String(episode.imdbRating).trim() !== "") {
-    return episode.imdbRating;
-  }
-  return null;
+  return normalizeEpisodeImdbRating(episode?.imdbRating);
 }
 
 function formatRuntimeMinutes(runtime) {
@@ -1815,6 +1815,21 @@ export const MetaDetailsScreen = {
     void this.refreshTrailerSource(meta, token);
     void this.loadTraktComments({ force: true });
 
+    // Match Android TV: recommendations are an independent detail-page job.
+    // Starting them from the base meta keeps slower artwork/credits enrichment
+    // (and its optional cast fallback) from delaying or starving this section.
+    void withTimeout(this.fetchMoreLikeThis(meta), 5000, [])
+      .then((items) => {
+        if (token !== this.detailLoadToken) {
+          return;
+        }
+        this.moreLikeThisItems = Array.isArray(items) ? items : [];
+        this.updateRenderedDetailSections(this.meta || meta);
+      })
+      .catch((error) => {
+        console.warn("More like this background load failed", error);
+      });
+
     // Background enrichments: do not block initial screen rendering.
     (async () => {
       const enrichedMeta = await withTimeout(this.enrichMeta(meta), 4000, meta);
@@ -1844,7 +1859,7 @@ export const MetaDetailsScreen = {
       void this.refreshTrailerSource(this.meta, token);
       void this.loadTraktComments({ force: true });
 
-      const tasks = [withTimeout(this.fetchMoreLikeThis(this.meta), 5000, [])];
+      const tasks = [];
       if (isSeriesDetailMeta(this.meta, this.episodes)) {
         tasks.push(withTimeout(this.fetchSeriesRatingsBySeason(this.meta), 5000, {}));
         const traktId = this.meta?.ids?.trakt;
@@ -1883,19 +1898,18 @@ export const MetaDetailsScreen = {
       if (token !== this.detailLoadToken) {
         return;
       }
-      this.moreLikeThisItems = Array.isArray(results[0]) ? results[0] : [];
       if (isSeriesDetailMeta(this.meta, this.episodes)) {
-        this.seriesRatingsBySeason = results[1] || {};
-        if (this.meta?.ids?.trakt && results[2] instanceof Map) {
-          this.enrichedWatchedState = results[2];
+        this.seriesRatingsBySeason = results[0] || {};
+        if (this.meta?.ids?.trakt && results[1] instanceof Map) {
+          this.enrichedWatchedState = results[1];
           this.buildEpisodeState(allProgressItems, allWatchedItems, this.enrichedWatchedState);
           this.updateRenderedDetailSections(this.meta);
         }
       } else {
-        this.collectionItems = Array.isArray(results[1]?.items) ? results[1].items : [];
-        this.collectionName = results[1]?.name || "";
-        if (this.meta?.ids?.trakt && results[2]) {
-          this.enrichedMovieState = results[2];
+        this.collectionItems = Array.isArray(results[0]?.items) ? results[0].items : [];
+        this.collectionName = results[0]?.name || "";
+        if (this.meta?.ids?.trakt && results[1]) {
+          this.enrichedMovieState = results[1];
           this.isMarkedWatched = Boolean(this.enrichedMovieState?.isWatched);
           this.updateRenderedDetailSections(this.meta);
         }
@@ -1935,13 +1949,21 @@ export const MetaDetailsScreen = {
       if (!settings.enabled || !settings.useMoreLikeThis) {
         return [];
       }
-      const type = isSeriesDetailMeta(meta)
-        ? meta?.type === "tv"
-          ? "series"
-          : meta?.type || "series"
-        : meta?.type || "movie";
+      // Android resolves the route type first, then the meta type, and treats
+      // both `tv` and `series` as TMDB TV content even when episodes are absent.
+      const routeType = String(this.params?.itemType || "").toLowerCase();
+      const metaType = String(meta?.type || "").toLowerCase();
+      const seriesTypes = ["series", "tv", "show", "tvshow"];
+      const movieTypes = ["movie", "film"];
+      const resolvedType = [...seriesTypes, ...movieTypes].includes(routeType)
+        ? routeType
+        : [...seriesTypes, ...movieTypes].includes(metaType)
+          ? metaType
+          : "movie";
+      const type = seriesTypes.includes(resolvedType) ? "series" : "movie";
       const tmdbId =
         (await TmdbService.ensureTmdbId(meta?.id, type)) ||
+        (await TmdbService.ensureTmdbId(this.params?.itemId, type)) ||
         (await this.searchTmdbIdByTitle(meta, type));
       if (!tmdbId) {
         return [];
@@ -2424,11 +2446,27 @@ export const MetaDetailsScreen = {
   },
 
   getStreamNavigationOptions() {
-    // Continue Watching mounts Detail only to resolve the Stream target.
-    return this.params?.autoOpenContinueWatching ? { skipStackPush: true } : {};
+    // Continue Watching mounts Detail only to resolve the Stream target. Replace
+    // that transient browser-history entry too, otherwise it can resurface after
+    // the user returns Home and opens a different title.
+    return this.params?.autoOpenContinueWatching
+      ? { skipStackPush: true, replaceHistory: true }
+      : {};
   },
 
   navigateBackFromDetail() {
+    if (this.params?.returnToSearchOnBack) {
+      Router.navigate(
+        "search",
+        {},
+        {
+          isBackNavigation: true,
+          skipStackPush: true,
+          replaceHistory: true
+        }
+      );
+      return true;
+    }
     if (this.params?.returnHomeOnBack) {
       Router.navigate(
         "home",
@@ -2638,30 +2676,19 @@ export const MetaDetailsScreen = {
       if (!meta?.id || !this.episodes?.length) {
         return {};
       }
-      const tmdbId = await TmdbService.ensureTmdbId(meta.id, "series");
-      if (!tmdbId) {
+      const imdbId = resolveMetaImdbId(meta, this.params);
+      const knownTmdbId = resolveMetaTmdbId(meta, this.params);
+      const tmdbId =
+        knownTmdbId ||
+        (await TmdbService.ensureTmdbId(meta.id, "series", {
+          // Episode IMDb ratings are independent from optional TMDB metadata
+          // enrichment, matching Android TV's detail-screen behavior.
+          requireEnabled: false
+        }));
+      if (!imdbId && !tmdbId) {
         return {};
       }
-      const directRatings = await imdbEpisodeRatingsRepository.getSeasonRatingsByTmdbId(tmdbId);
-      if (Object.keys(directRatings || {}).length) {
-        return directRatings;
-      }
-      const seasons = Array.from(
-        new Set(
-          this.episodes.map((episode) => Number(episode.season || 0)).filter((value) => value > 0)
-        )
-      );
-      const entries = await Promise.all(
-        seasons.map(async (season) => {
-          const ratings = await TmdbMetadataService.fetchSeasonRatings({
-            tmdbId,
-            seasonNumber: season,
-            language: TmdbSettingsStore.get().language
-          });
-          return [season, ratings];
-        })
-      );
-      return Object.fromEntries(entries);
+      return await imdbEpisodeRatingsRepository.getEpisodeRatings({ imdbId, tmdbId });
     } catch (error) {
       console.warn("Series ratings enrichment failed", error);
       return {};
@@ -7039,6 +7066,7 @@ export const MetaDetailsScreen = {
       tmdbId,
       traktId,
       contentLanguage,
+      returnToSearchOnBack: Boolean(this.params?.returnToSearchOnBack),
       videoId: pending.videoId,
       season: pending.episode?.season ?? null,
       episode: pending.episode?.episode ?? null,
@@ -7115,6 +7143,7 @@ export const MetaDetailsScreen = {
         traktId,
         contentLanguage,
         originalItemId: this.params?.originalItemId || null,
+        returnToSearchOnBack: Boolean(this.params?.returnToSearchOnBack),
         returnToDetail: true,
         fromDetailRoute: true,
         itemTitle:
@@ -7153,6 +7182,7 @@ export const MetaDetailsScreen = {
     const streamBackdrop =
       this.meta?.background || this.meta?.landscapePoster || this.meta?.poster || null;
     const itemType = resolvePlayableDetailType(this.params?.itemType || this.meta?.type, this.meta);
+    const { itemId, videoId } = resolveMovieStreamIdentity(this.meta, this.params);
     const imdbId = resolveMetaImdbId(this.meta, this.params);
     const tmdbId = resolveMetaTmdbId(this.meta, this.params);
     const traktId = resolveMetaTraktId(this.meta, this.params);
@@ -7161,13 +7191,14 @@ export const MetaDetailsScreen = {
     Router.navigate(
       "stream",
       {
-        itemId: this.params?.itemId || null,
+        itemId,
         itemType,
         imdbId,
         tmdbId,
         traktId,
         contentLanguage,
         originalItemId: this.params?.originalItemId || null,
+        returnToSearchOnBack: Boolean(this.params?.returnToSearchOnBack),
         returnToDetail: true,
         fromDetailRoute: true,
         itemTitle:
@@ -7180,9 +7211,8 @@ export const MetaDetailsScreen = {
         logo: this.meta?.logo || null,
         parentalWarnings: this.meta?.parentalWarnings || null,
         parentalGuide: this.meta?.parentalGuide || null,
-        videoId: this.params?.itemId || null,
-        preferredStreamId:
-          StreamPreferencesStore.get(this.params?.itemId, this.params?.itemId) || null,
+        videoId,
+        preferredStreamId: StreamPreferencesStore.get(itemId, videoId) || null,
         episodes: [],
         ...extraParams
       },
@@ -7215,6 +7245,7 @@ export const MetaDetailsScreen = {
       tmdbId,
       traktId,
       contentLanguage,
+      returnToSearchOnBack: Boolean(this.params?.returnToSearchOnBack),
       season: null,
       episode: null,
       playerTitle:
@@ -8903,6 +8934,7 @@ export const MetaDetailsScreen = {
         tmdbId,
         traktId,
         contentLanguage,
+        returnToSearchOnBack: Boolean(this.params?.returnToSearchOnBack),
         season: this.nextEpisodeToWatch?.season ?? null,
         episode: this.nextEpisodeToWatch?.episode ?? null,
         playerTitle:

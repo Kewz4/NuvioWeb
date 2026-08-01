@@ -266,6 +266,8 @@ const KEY_ALIASES = {
   "settings.playback.autoplayTrailer.title": "audio_autoplay_trailers",
   "settings.playback.stillWatching.subtitle": "still_watching_setting_sub",
   "settings.playback.stillWatching.title": "still_watching_setting_title",
+  "settings.playback.stillWatchingThreshold.subtitle": "still_watching_threshold_sub",
+  "settings.playback.stillWatchingThreshold.title": "still_watching_threshold_title",
   "settings.playback.subtitleBold.subtitle": "subtitle_bold_subtitle",
   "settings.playback.subtitleBold.title": "subtitle_bold",
   "settings.playback.subtitleOffset.default": "subtitle_position_default",

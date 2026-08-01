@@ -49,3 +49,23 @@ test("AVPlay re-arms HTML subtitle callbacks before selecting a track", () => {
   assert.equal(controller.avplaySubtitlesSilent, false);
   assert.equal(controller.avplayNativeSubtitleRendering, false);
 });
+
+test("AVPlay audio track selection does not seek after switching", () => {
+  const calls = [];
+  const controller = Object.create(PlayerController);
+  Object.assign(controller, {
+    avplayAudioTracks: [{ avplayTrackIndex: 2 }],
+    getAvPlay: () => ({
+      setSelectTrack(type, index) {
+        calls.push(["setSelectTrack", type, index]);
+      },
+      seekTo(position) {
+        calls.push(["seekTo", position]);
+      }
+    }),
+    getAvPlayState: () => "PLAYING"
+  });
+
+  assert.equal(controller.trySelectAvPlayAudioTrackIndex(2), true);
+  assert.deepEqual(calls, [["setSelectTrack", "AUDIO", 2]]);
+});

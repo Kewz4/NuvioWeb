@@ -2,7 +2,7 @@
   "name": "nuvio-tv-web",
   "private": true,
   "type": "module",
-  "version": "0.3.26",
+  "version": "0.3.28",
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "prepare": "husky || true",

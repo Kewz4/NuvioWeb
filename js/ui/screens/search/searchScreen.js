@@ -1828,7 +1828,8 @@ export const SearchScreen = {
       addonBaseUrl: node.dataset.addonBaseUrl || "",
       addonId: node.dataset.addonId || "",
       addonName: node.dataset.addonName || "",
-      catalogType: node.dataset.catalogType || node.dataset.itemType || "movie"
+      catalogType: node.dataset.catalogType || node.dataset.itemType || "movie",
+      returnToSearchOnBack: true
     });
   },
 

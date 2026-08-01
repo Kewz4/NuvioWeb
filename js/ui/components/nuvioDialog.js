@@ -53,6 +53,8 @@ export class NuvioDialog {
     onDismiss = null,
     panelClassName = "",
     actionsClassName = "",
+    content = null,
+    onVerticalNavigate = null,
     suppressEnterUntilKeyUp = false
   }) {
     this.title = title;
@@ -63,6 +65,8 @@ export class NuvioDialog {
     this.onDismiss = onDismiss;
     this.panelClassName = panelClassName;
     this.actionsClassName = actionsClassName;
+    this.content = content;
+    this.onVerticalNavigate = onVerticalNavigate;
     this.suppressEnterUntilKeyUp = Boolean(suppressEnterUntilKeyUp);
 
     this._focusedIndex = 0;
@@ -136,6 +140,13 @@ export class NuvioDialog {
       errorEl.className = "nuvio-dialog-error";
       errorEl.textContent = this.error;
       panel.appendChild(errorEl);
+    }
+
+    if (this.content) {
+      const content = typeof this.content === "function" ? this.content(panel) : this.content;
+      if (content) {
+        panel.appendChild(content);
+      }
     }
 
     // Buttons
@@ -257,6 +268,15 @@ export class NuvioDialog {
     }
 
     if (key.isDown || key.isRight) {
+      if (
+        key.isDown &&
+        typeof this.onVerticalNavigate === "function" &&
+        this.onVerticalNavigate(1) === true
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       this._focusIndex(this._focusedIndex + 1);
@@ -264,6 +284,15 @@ export class NuvioDialog {
     }
 
     if (key.isUp || key.isLeft) {
+      if (
+        key.isUp &&
+        typeof this.onVerticalNavigate === "function" &&
+        this.onVerticalNavigate(-1) === true
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       this._focusIndex(this._focusedIndex - 1);

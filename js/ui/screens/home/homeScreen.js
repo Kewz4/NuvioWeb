@@ -10,6 +10,7 @@ import {
   libraryRepository,
   LibrarySourceMode
 } from "../../../data/repository/libraryRepository.js";
+import { mapWithConcurrency } from "../../../core/network/mapWithConcurrency.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { ContinueWatchingPreferences } from "../../../data/local/continueWatchingPreferences.js";
 import { HomeCatalogStore } from "../../../data/local/homeCatalogStore.js";
@@ -61,11 +62,14 @@ import {
   CW_DAYS_CAP,
   CW_DISPLAY_SNAPSHOT_KEY,
   CW_DISPLAY_SNAPSHOT_MAX_AGE_MS,
+  CW_DISPLAY_SNAPSHOT_MAX_ITEMS,
   CW_DISPLAY_SNAPSHOT_MAX_SCOPES,
   CW_ENRICHMENT_CACHE_KEY,
   CW_ENRICHMENT_CACHE_MAX_AGE_MS,
   CW_ENTER_DELAY_MS,
   CW_HOLD_DELAY_MS,
+  CW_INITIAL_RESOLVE_BUDGET_MS,
+  CW_MAX_ENRICHMENT_CONCURRENCY,
   CW_MAX_NEXT_UP_CONCURRENCY,
   CW_MAX_NEXT_UP_LOOKUPS,
   CW_MAX_VISIBLE_ITEMS,
@@ -75,6 +79,10 @@ import {
   CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS,
   CW_PROGRESS_END_THRESHOLD,
   CW_PROGRESS_START_THRESHOLD,
+  CW_RENDER_BATCH_ITEMS_CONSTRAINED,
+  CW_RENDER_BATCH_ITEMS_DEFAULT,
+  CW_RENDER_BATCH_ITEMS_LEGACY_TV,
+  CW_RENDER_LOAD_AHEAD_ITEMS,
   HERO_ROTATE_FIRST_DELAY_MS,
   HERO_ROTATE_INTERVAL_MS,
   HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS,
@@ -94,6 +102,10 @@ import {
   HOME_ROW_TIMEOUT_MS
 } from "./homeConstants.js";
 import { resolveNextUpCandidates } from "./nextUpCandidateResolver.js";
+import {
+  getContinueWatchingRenderItems,
+  shouldAppendContinueWatchingItems
+} from "./continueWatchingRenderWindow.js";
 import {
   buildHeroBackdropSources,
   buildImageFallbackErrorHandler,
@@ -1733,7 +1745,7 @@ function writeContinueWatchingDisplaySnapshot(scopeKey, items = []) {
   }
   const store = LocalStore.get(CW_DISPLAY_SNAPSHOT_KEY, {});
   const next = store && typeof store === "object" ? { ...store } : {};
-  next[key] = { savedAt: Date.now(), items: items.slice(0, CW_MAX_VISIBLE_ITEMS) };
+  next[key] = { savedAt: Date.now(), items: items.slice(0, CW_DISPLAY_SNAPSHOT_MAX_ITEMS) };
   const entries = Object.entries(next)
     .sort(([, left], [, right]) => Number(right?.savedAt || 0) - Number(left?.savedAt || 0))
     .slice(0, CW_DISPLAY_SNAPSHOT_MAX_SCOPES);
@@ -2233,6 +2245,8 @@ export function renderContinueWatchingSection(items = [], options = {}) {
     blurNextUp: options?.blurNextUp,
     rowKey
   };
+  const itemLimit = Math.max(1, Number(options?.itemLimit || items.length || 1));
+  const renderedItems = getContinueWatchingRenderItems(items, itemLimit);
   return `
     <section class="home-row home-row-continue"${rowKey ? ` data-row-key="${escapeAttribute(rowKey)}"` : ""}>
       <div class="home-row-head">
@@ -2240,8 +2254,8 @@ export function renderContinueWatchingSection(items = [], options = {}) {
       </div>
       <div class="home-track home-track-continue"${rowKey ? ` data-track-row-key="${escapeAttribute(rowKey)}"` : ""}>
         ${
-          items.length
-            ? items
+          renderedItems.length
+            ? renderedItems
                 .map((item, index) => renderContinueWatchingCard(item, index, cardOptions))
                 .join("")
             : Array.from({ length: loadingCount }, (_, index) =>
@@ -3559,6 +3573,16 @@ export const HomeScreen = {
     return this.isPerformanceConstrained()
       ? HOME_MAX_ITEMS_PER_ROW_CONSTRAINED
       : HOME_MAX_ITEMS_PER_ROW_DEFAULT;
+  },
+
+  getContinueWatchingRenderBatchSize() {
+    if (this.isLegacyTvRuntime()) {
+      return CW_RENDER_BATCH_ITEMS_LEGACY_TV;
+    }
+    if (Platform.isWebOS() || Platform.isTizen() || this.isPerformanceConstrained()) {
+      return CW_RENDER_BATCH_ITEMS_CONSTRAINED;
+    }
+    return CW_RENDER_BATCH_ITEMS_DEFAULT;
   },
 
   getLoadingRowItemCount() {
@@ -7023,7 +7047,7 @@ export const HomeScreen = {
     this.modernVerticalFastScrollState = null;
     if (land && state?.direction) {
       this.landModernVerticalFastScroll(state.direction);
-      this.scheduleHomeLazyImageHydration(this.getCurrentFocusedNode());
+      this.scheduleHomeLazyImageHydration();
     }
   },
 
@@ -7409,6 +7433,7 @@ export const HomeScreen = {
         }
       }
       this.scheduleModernTrackPaginationForFocus(target);
+      this.ensureContinueWatchingRenderAhead(target);
       if (shouldDeferFocusEffects) {
         this.cancelPendingHeroFocus();
         this.cancelFocusedPosterFlow();
@@ -7680,6 +7705,9 @@ export const HomeScreen = {
     }
 
     if (direction === "right") {
+      if (this.getNodeRowKey(current) === "continue_watching") {
+        this.ensureContinueWatchingRenderAhead(current, { force: !rowNodes[col + 1] });
+      }
       const target = rowNodes[col + 1] || null;
       return this.focusNode(current, target, direction, inputMeta) || true;
     }
@@ -7918,6 +7946,7 @@ export const HomeScreen = {
       this.scheduleModernSidebarPillAutoCollapse();
       this.homeLoadToken = (this.homeLoadToken || 0) + 1;
       this.bindHomeViewportEvents();
+      this.setupContinueWatchingProgressiveRendering();
       if (this.layoutMode === "modern") {
         this.setupModernTrackScrollPagination();
       }
@@ -8069,10 +8098,12 @@ export const HomeScreen = {
         progressAllError = error;
         return [];
       });
-    const recentProgressPromise = watchProgressRepository.getRecent(10).catch((error) => {
-      recentProgressError = error;
-      return [];
-    });
+    const recentProgressPromise = watchProgressRepository
+      .getRecent(CW_MAX_VISIBLE_ITEMS)
+      .catch((error) => {
+        recentProgressError = error;
+        return [];
+      });
     // Continue Watching is reconciled fire-and-forget in the block below, so a
     // slow addon or Trakt call never blocks catalog rows. The section paints
     // instantly from the snapshot hydrated in mount().
@@ -8273,6 +8304,15 @@ export const HomeScreen = {
         .catch((error) => {
           console.warn("Hero async enrichment failed", error);
         });
+    }
+
+    if (waitForInitialContinueWatching) {
+      setTimeout(() => {
+        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+          return;
+        }
+        releaseInitialHomeAfterContinueWatching();
+      }, CW_INITIAL_RESOLVE_BUDGET_MS);
     }
 
     {
@@ -8657,6 +8697,7 @@ export const HomeScreen = {
     this.cancelScheduledRender();
     this.cancelModernCameraFollow({ stopAnimations: true });
     this.teardownModernTrackScrollPagination();
+    this.teardownContinueWatchingProgressiveRendering();
     this.invalidateNavigationModel();
     const backFocusState = this.isRestoringFocusFromBack
       ? this.pendingBackFocusState || this.readStoredReturnFocusState() || null
@@ -8729,6 +8770,17 @@ export const HomeScreen = {
       (!this.homeHoldFocusLocked && retainedFocusState && retainedFocusState.focusKind === "item"
         ? retainedFocusState
         : null);
+    const continueWatchingFocusIndex =
+      String(focusState?.rowKey || "") === "continue_watching"
+        ? Math.max(0, Number(focusState?.itemIndex || 0))
+        : -1;
+    const continueWatchingRenderLimit = Math.min(
+      Number(this.continueWatchingDisplay?.length || 0),
+      Math.max(
+        this.getContinueWatchingRenderBatchSize(),
+        continueWatchingFocusIndex >= 0 ? continueWatchingFocusIndex + 1 : 0
+      )
+    );
     const focusedPosterFlowConfig = this.getFocusedPosterFlowConfig(this.layoutPrefs || {});
     const expandFocusedPoster =
       this.layoutMode === "modern" &&
@@ -8764,6 +8816,7 @@ export const HomeScreen = {
         continueWatchingItems: this.continueWatchingDisplay || [],
         continueWatchingLoading: Boolean(this.continueWatchingLoading),
         continueWatchingLoadingCount: effectiveContinueWatchingLoadingCount,
+        continueWatchingRenderLimit,
         useEpisodeThumbnailsInCw: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
         blurContinueWatchingNextUp: resolveContinueWatchingBlurNextUp(this.layoutPrefs),
         rowItemLimit,
@@ -8792,6 +8845,7 @@ export const HomeScreen = {
         rowKey: "continue_watching",
         loading: Boolean(this.continueWatchingLoading),
         loadingCount: effectiveContinueWatchingLoadingCount,
+        itemLimit: continueWatchingRenderLimit,
         useEpisodeThumbnails: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
         blurNextUp: resolveContinueWatchingBlurNextUp(this.layoutPrefs)
       });
@@ -8869,6 +8923,7 @@ export const HomeScreen = {
 
     this.buildNavigationModel();
     this.bindHomeViewportEvents();
+    this.setupContinueWatchingProgressiveRendering();
     if (this.layoutMode === "modern") {
       this.setupModernTrackScrollPagination();
     }
@@ -9030,6 +9085,8 @@ export const HomeScreen = {
   scheduleHomeLazyImageHydration(anchorNode = null) {
     if (anchorNode instanceof HTMLElement) {
       this.pendingHomeLazyImageAnchor = anchorNode;
+    } else {
+      this.homeLazyImageHydrationNeedsFullScan = true;
     }
     if (this.modernVerticalFastScrollState) {
       return;
@@ -9041,14 +9098,30 @@ export const HomeScreen = {
       this.homeLazyImageHydrationRaf = 0;
       const anchor = this.pendingHomeLazyImageAnchor || this.getCurrentFocusedNode();
       this.pendingHomeLazyImageAnchor = null;
-      this.hydrateHomeLazyImages(anchor);
+      const forceFullScan = Boolean(this.homeLazyImageHydrationNeedsFullScan);
+      this.homeLazyImageHydrationNeedsFullScan = false;
+      this.hydrateHomeLazyImages(anchor, { forceFullScan });
     });
   },
 
-  hydrateHomeLazyImages(anchorNode = null) {
+  hydrateHomeLazyImages(anchorNode = null, { forceFullScan = false } = {}) {
     if (!this.container) {
       return;
     }
+    const rowSelector = ".home-row, .home-modern-row, .home-grid-section, .home-row-continue";
+    const anchorRow = anchorNode?.closest?.(rowSelector) || null;
+    if (
+      !forceFullScan &&
+      anchorRow instanceof HTMLElement &&
+      anchorRow === this.lastHomeLazyImageHydrationAnchorRow
+    ) {
+      // The first pass for a focused row hydrates every image in that row. On
+      // subsequent horizontal moves, the viewport geometry for every other row
+      // is unchanged, so rescanning and measuring all distant lazy images only
+      // repeats work on the D-pad hot path.
+      return;
+    }
+    this.lastHomeLazyImageHydrationAnchorRow = anchorRow;
     const images = Array.from(
       this.container.querySelectorAll(
         ".home-main .content-poster[data-src], .home-main .home-poster-landscape-logo[data-src], .home-main .home-continue-bg[data-src]"
@@ -9062,13 +9135,8 @@ export const HomeScreen = {
       this.container.querySelector(".home-main") ||
       this.container;
     const viewportRect = viewport.getBoundingClientRect();
-    const anchorRow =
-      anchorNode?.closest?.(
-        ".home-row, .home-modern-row, .home-grid-section, .home-row-continue"
-      ) || null;
     const verticalMargin = Platform.isWebOS() || Platform.isTizen() ? 720 : 1200;
     const horizontalMargin = Platform.isWebOS() || Platform.isTizen() ? 520 : 1000;
-    const rowSelector = ".home-row, .home-modern-row, .home-grid-section, .home-row-continue";
     const imagesByRow = new Map();
     images.forEach((image) => {
       const row = image.closest(rowSelector);
@@ -9729,130 +9797,127 @@ export const HomeScreen = {
 
   async enrichContinueWatching(items = [], options = {}) {
     const [inProgressItems, nextUpItems] = await Promise.all([
-      Promise.all(
-        (items || []).map(async (item) => {
-          const cachedItem = applyCachedContinueWatchingEnrichment(item);
-          if (
-            !options?.forceRefreshMetadata &&
-            !needsContinueWatchingMetadataRefresh([cachedItem])
-          ) {
-            return cachedItem;
-          }
-          try {
-            let meta = await this.fetchMetaForContinueWatching(
+      mapWithConcurrency(items || [], CW_MAX_ENRICHMENT_CONCURRENCY, async (item) => {
+        const cachedItem = applyCachedContinueWatchingEnrichment(item);
+        if (!options?.forceRefreshMetadata && !needsContinueWatchingMetadataRefresh([cachedItem])) {
+          return cachedItem;
+        }
+        try {
+          let meta =
+            item.enrichedMeta ||
+            (await this.fetchMetaForContinueWatching(
               item.contentType || "movie",
               item.contentId,
               options?.metaTimeoutMs || 1800,
               [item.imdbId]
-            );
-            if (!meta) {
-              meta = {
-                id: item.contentId,
-                type: item.contentType || "movie",
-                name: item.title || prettyId(item.contentId)
-              };
-            }
-            if (meta) {
-              const enrichedMeta = await this.enrichContinueWatchingMetaWithTmdb(meta, item);
-              const episodeEntry = findEpisodeEntry(enrichedMeta.videos, item.season, item.episode);
-              const runtimeMinutes = parseRuntimeMinutes(
-                episodeEntry?.runtimeMinutes ??
-                  enrichedMeta.episodeRuntime ??
-                  enrichedMeta.runtimeMinutes ??
-                  enrichedMeta.runtime ??
-                  0
-              );
-              const enriched = {
-                ...item,
-                title: enrichedMeta.name || prettyId(item.contentId),
-                landscapePoster:
-                  enrichedMeta.landscapePoster ||
-                  enrichedMeta.thumbnail ||
-                  enrichedMeta.backdrop ||
-                  enrichedMeta.background ||
-                  null,
-                episodeThumbnail:
-                  episodeEntry?.thumbnail ||
-                  enrichedMeta.episodeThumbnail ||
-                  item.episodeThumbnail ||
-                  null,
-                poster:
-                  enrichedMeta.poster ||
-                  enrichedMeta.thumbnail ||
-                  enrichedMeta.background ||
-                  enrichedMeta.backdrop ||
-                  null,
-                background:
-                  enrichedMeta.background ||
-                  enrichedMeta.backdrop ||
-                  enrichedMeta.thumbnail ||
-                  enrichedMeta.poster ||
-                  null,
-                backdrop: enrichedMeta.backdrop || enrichedMeta.background || null,
-                thumbnail: enrichedMeta.thumbnail || enrichedMeta.poster || null,
-                logo: enrichedMeta.logo || null,
-                description: enrichedMeta.description || "",
-                releaseInfo: enrichedMeta.releaseInfo || "",
-                imdbRating: resolveImdbRating(enrichedMeta),
-                genres: Array.isArray(enrichedMeta.genres) ? enrichedMeta.genres : [],
-                runtimeMinutes,
-                durationMs:
-                  Number(item.durationMs || 0) > 0
-                    ? Number(item.durationMs || 0)
-                    : runtimeMinutes > 0
-                      ? Math.round(runtimeMinutes * 60000)
-                      : 0,
-                ageRating: firstNonEmpty(enrichedMeta.ageRating, enrichedMeta.age_rating),
-                status: firstNonEmpty(enrichedMeta.status),
-                language: firstNonEmpty(enrichedMeta.language),
-                country: firstNonEmpty(enrichedMeta.country),
-                episodeTitle: firstNonEmpty(
-                  enrichedMeta.episodeTitle,
-                  episodeEntry?.title,
-                  item.episodeTitle,
-                  item.subtitle
-                ),
-                episodeDescription: firstNonEmpty(
-                  enrichedMeta.episodeDescription,
-                  episodeEntry?.overview,
-                  item.episodeDescription,
-                  item.episode_description
-                ),
-                continueWatchingMetaResolved: true
-              };
-              saveContinueWatchingEnrichment(enriched);
-              return enriched;
-            }
-          } catch (error) {
-            console.warn("Continue watching enrichment failed", error);
+            ));
+          if (!meta) {
+            meta = {
+              id: item.contentId,
+              type: item.contentType || "movie",
+              name: item.title || prettyId(item.contentId)
+            };
           }
-          return {
-            ...cachedItem,
-            title: firstNonEmpty(cachedItem.title, cachedItem.name),
-            landscapePoster:
-              cachedItem.landscapePoster ||
-              cachedItem.thumbnail ||
-              cachedItem.backdrop ||
-              cachedItem.background ||
-              null,
-            episodeThumbnail: cachedItem.episodeThumbnail || null,
-            poster: cachedItem.poster || cachedItem.thumbnail || null,
-            background: cachedItem.background || cachedItem.backdrop || cachedItem.poster || null,
-            backdrop: cachedItem.backdrop || cachedItem.background || null,
-            thumbnail: cachedItem.thumbnail || cachedItem.poster || null,
-            logo: cachedItem.logo || null,
-            description: cachedItem.description || "",
-            releaseInfo: cachedItem.releaseInfo || "",
-            genres: Array.isArray(cachedItem.genres) ? cachedItem.genres : [],
-            runtimeMinutes: Number(cachedItem.runtimeMinutes ?? cachedItem.runtime ?? 0) || 0,
-            ageRating: firstNonEmpty(cachedItem.ageRating, cachedItem.age_rating),
-            status: firstNonEmpty(cachedItem.status),
-            language: firstNonEmpty(cachedItem.language),
-            country: firstNonEmpty(cachedItem.country),
-            episodeTitle: firstNonEmpty(cachedItem.episodeTitle, cachedItem.subtitle)
-          };
-        })
-      ),
+          if (meta) {
+            const enrichedMeta = await this.enrichContinueWatchingMetaWithTmdb(meta, item);
+            const episodeEntry = findEpisodeEntry(enrichedMeta.videos, item.season, item.episode);
+            const runtimeMinutes = parseRuntimeMinutes(
+              episodeEntry?.runtimeMinutes ??
+                enrichedMeta.episodeRuntime ??
+                enrichedMeta.runtimeMinutes ??
+                enrichedMeta.runtime ??
+                0
+            );
+            const enriched = {
+              ...item,
+              title: enrichedMeta.name || prettyId(item.contentId),
+              landscapePoster:
+                enrichedMeta.landscapePoster ||
+                enrichedMeta.thumbnail ||
+                enrichedMeta.backdrop ||
+                enrichedMeta.background ||
+                null,
+              episodeThumbnail:
+                episodeEntry?.thumbnail ||
+                enrichedMeta.episodeThumbnail ||
+                item.episodeThumbnail ||
+                null,
+              poster:
+                enrichedMeta.poster ||
+                enrichedMeta.thumbnail ||
+                enrichedMeta.background ||
+                enrichedMeta.backdrop ||
+                null,
+              background:
+                enrichedMeta.background ||
+                enrichedMeta.backdrop ||
+                enrichedMeta.thumbnail ||
+                enrichedMeta.poster ||
+                null,
+              backdrop: enrichedMeta.backdrop || enrichedMeta.background || null,
+              thumbnail: enrichedMeta.thumbnail || enrichedMeta.poster || null,
+              logo: enrichedMeta.logo || null,
+              description: enrichedMeta.description || "",
+              releaseInfo: enrichedMeta.releaseInfo || "",
+              imdbRating: resolveImdbRating(enrichedMeta),
+              genres: Array.isArray(enrichedMeta.genres) ? enrichedMeta.genres : [],
+              runtimeMinutes,
+              durationMs:
+                Number(item.durationMs || 0) > 0
+                  ? Number(item.durationMs || 0)
+                  : runtimeMinutes > 0
+                    ? Math.round(runtimeMinutes * 60000)
+                    : 0,
+              ageRating: firstNonEmpty(enrichedMeta.ageRating, enrichedMeta.age_rating),
+              status: firstNonEmpty(enrichedMeta.status),
+              language: firstNonEmpty(enrichedMeta.language),
+              country: firstNonEmpty(enrichedMeta.country),
+              episodeTitle: firstNonEmpty(
+                enrichedMeta.episodeTitle,
+                episodeEntry?.title,
+                item.episodeTitle,
+                item.subtitle
+              ),
+              episodeDescription: firstNonEmpty(
+                enrichedMeta.episodeDescription,
+                episodeEntry?.overview,
+                item.episodeDescription,
+                item.episode_description
+              ),
+              continueWatchingMetaResolved: true
+            };
+            saveContinueWatchingEnrichment(enriched);
+            return enriched;
+          }
+        } catch (error) {
+          console.warn("Continue watching enrichment failed", error);
+        }
+        return {
+          ...cachedItem,
+          title: firstNonEmpty(cachedItem.title, cachedItem.name),
+          landscapePoster:
+            cachedItem.landscapePoster ||
+            cachedItem.thumbnail ||
+            cachedItem.backdrop ||
+            cachedItem.background ||
+            null,
+          episodeThumbnail: cachedItem.episodeThumbnail || null,
+          poster: cachedItem.poster || cachedItem.thumbnail || null,
+          background: cachedItem.background || cachedItem.backdrop || cachedItem.poster || null,
+          backdrop: cachedItem.backdrop || cachedItem.background || null,
+          thumbnail: cachedItem.thumbnail || cachedItem.poster || null,
+          logo: cachedItem.logo || null,
+          description: cachedItem.description || "",
+          releaseInfo: cachedItem.releaseInfo || "",
+          genres: Array.isArray(cachedItem.genres) ? cachedItem.genres : [],
+          runtimeMinutes: Number(cachedItem.runtimeMinutes ?? cachedItem.runtime ?? 0) || 0,
+          ageRating: firstNonEmpty(cachedItem.ageRating, cachedItem.age_rating),
+          status: firstNonEmpty(cachedItem.status),
+          language: firstNonEmpty(cachedItem.language),
+          country: firstNonEmpty(cachedItem.country),
+          episodeTitle: firstNonEmpty(cachedItem.episodeTitle, cachedItem.subtitle)
+        };
+      }),
       this.buildNextUpItems({
         allProgress: options?.allProgress || [],
         inProgressItems: items || [],
@@ -10202,6 +10267,142 @@ export const HomeScreen = {
   // Matches ATV ModernHomeRows.kt: fires when lastVisible >= total - 4 AND hasMore
   // ---------------------------------------------------------------------------
 
+  appendContinueWatchingBatch() {
+    const track = this.container?.querySelector(".home-track-continue");
+    const items = Array.isArray(this.continueWatchingDisplay) ? this.continueWatchingDisplay : [];
+    if (!track?.isConnected || !items.length) {
+      return false;
+    }
+
+    const mountedCards = Array.from(
+      track.querySelectorAll(".home-continue-card:not(.home-continue-card-loading)")
+    );
+    const startIndex = mountedCards.length;
+    if (startIndex >= items.length) {
+      return false;
+    }
+
+    const batchSize = this.getContinueWatchingRenderBatchSize();
+    const nextItems = items.slice(startIndex, startIndex + batchSize);
+    const rowKey = "continue_watching";
+    const cardOptions = {
+      useEpisodeThumbnails: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
+      blurNextUp: resolveContinueWatchingBlurNextUp(this.layoutPrefs),
+      rowKey
+    };
+    const markup = nextItems
+      .map((item, index) => renderContinueWatchingCard(item, startIndex + index, cardOptions))
+      .join("");
+    if (!markup) {
+      return false;
+    }
+
+    const fragment = document.createRange().createContextualFragment(markup);
+    const appendedCards = Array.from(fragment.querySelectorAll(".home-content-card.focusable"));
+    const navigationRowIndex = (this.navModel?.rows || []).findIndex(
+      (rowNodes) => rowNodes[0]?.closest?.(".home-track") === track
+    );
+    appendedCards.forEach((card, index) => {
+      card.dataset.navZone = "main";
+      card.dataset.navRow = String(Math.max(0, navigationRowIndex));
+      card.dataset.navCol = String(startIndex + index);
+      card.dataset.navRowKey = rowKey;
+    });
+    track.appendChild(fragment);
+
+    if (navigationRowIndex >= 0 && this.navModel?.rows?.[navigationRowIndex]) {
+      this.navModel.rows[navigationRowIndex].push(...appendedCards);
+      this.navModel.rowNodesByRowKey?.set?.(rowKey, this.navModel.rows[navigationRowIndex]);
+    } else {
+      this.invalidateNavigationModel();
+      this.buildNavigationModel();
+    }
+    this.scheduleHomeLazyImageHydration();
+    return true;
+  },
+
+  ensureContinueWatchingRenderAhead(target, { force = false } = {}) {
+    if (!target?.matches?.(".home-continue-card.focusable")) {
+      return false;
+    }
+    const track = target.closest(".home-track-continue");
+    if (!track) {
+      return false;
+    }
+    const mountedCount = track.querySelectorAll(
+      ".home-continue-card:not(.home-continue-card-loading)"
+    ).length;
+    const focusedIndex = Math.max(0, Number(target.dataset.cwIndex || 0));
+    if (
+      !shouldAppendContinueWatchingItems({
+        focusedIndex,
+        mountedCount,
+        totalCount: Number(this.continueWatchingDisplay?.length || 0),
+        loadAheadItems: CW_RENDER_LOAD_AHEAD_ITEMS,
+        force
+      })
+    ) {
+      return false;
+    }
+    return this.appendContinueWatchingBatch();
+  },
+
+  setupContinueWatchingProgressiveRendering() {
+    this.teardownContinueWatchingProgressiveRendering();
+    const track = this.container?.querySelector(".home-track-continue");
+    if (!track) {
+      return;
+    }
+
+    let timer = 0;
+    const handler = () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(
+        () => {
+          timer = 0;
+          if (!track.isConnected || Router.getCurrent() !== "home") {
+            return;
+          }
+          const firstCard = track.querySelector(
+            ".home-continue-card:not(.home-continue-card-loading)"
+          );
+          const stride = Math.max(1, Number(firstCard?.offsetWidth || 0) + 24);
+          const distanceFromEnd =
+            Number(track.scrollWidth || 0) -
+            (Number(track.scrollLeft || 0) + Number(track.clientWidth || 0));
+          if (distanceFromEnd <= stride * CW_RENDER_LOAD_AHEAD_ITEMS) {
+            this.appendContinueWatchingBatch();
+          }
+        },
+        this.isPerformanceConstrained() ? 160 : 80
+      );
+    };
+    this.continueWatchingProgressiveTrack = track;
+    this.continueWatchingProgressiveHandler = handler;
+    this.continueWatchingProgressiveCancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+    };
+    track.addEventListener("scroll", handler, { passive: true });
+  },
+
+  teardownContinueWatchingProgressiveRendering() {
+    if (this.continueWatchingProgressiveTrack && this.continueWatchingProgressiveHandler) {
+      this.continueWatchingProgressiveTrack.removeEventListener(
+        "scroll",
+        this.continueWatchingProgressiveHandler
+      );
+    }
+    this.continueWatchingProgressiveCancel?.();
+    this.continueWatchingProgressiveTrack = null;
+    this.continueWatchingProgressiveHandler = null;
+    this.continueWatchingProgressiveCancel = null;
+  },
+
   scheduleModernTrackPaginationForFocus(target) {
     if (this.layoutMode !== "modern" || !target?.matches?.(".home-poster-card.focusable")) {
       return;
@@ -10325,7 +10526,7 @@ export const HomeScreen = {
             this.invalidateNavigationModel();
             this.buildNavigationModel();
           }
-          this.scheduleHomeLazyImageHydration(this.getCurrentFocusedNode());
+          this.scheduleHomeLazyImageHydration();
           return true;
         };
         if (totalVisible < currentItems.length) {
@@ -10544,6 +10745,7 @@ export const HomeScreen = {
     this.collapseFocusedPoster();
     this.teardownGridStickyHeader();
     this.teardownModernTrackScrollPagination();
+    this.teardownContinueWatchingProgressiveRendering();
     if (this.homeViewportFocusSyncTimer) {
       clearTimeout(this.homeViewportFocusSyncTimer);
       this.homeViewportFocusSyncTimer = null;
@@ -10561,6 +10763,8 @@ export const HomeScreen = {
       this.homeLazyImageHydrationRaf = 0;
     }
     this.pendingHomeLazyImageAnchor = null;
+    this.homeLazyImageHydrationNeedsFullScan = false;
+    this.lastHomeLazyImageHydrationAnchorRow = null;
     this.lastDirectionalKeyAtByDirection = {};
     this.homeTruncationScope = null;
     if (this.boundHomeEventContainer) {

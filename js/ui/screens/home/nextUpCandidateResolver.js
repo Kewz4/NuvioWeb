@@ -1,3 +1,5 @@
+import { mapWithConcurrency } from "../../../core/network/mapWithConcurrency.js";
+
 export async function resolveNextUpCandidates(
   candidates = [],
   resolver,
@@ -15,18 +17,6 @@ export async function resolveNextUpCandidates(
     return [];
   }
 
-  const results = new Array(limitedCandidates.length);
-  const workerCount = Math.min(limitedCandidates.length, Math.max(1, Number(concurrency || 1)));
-  let nextIndex = 0;
-
-  const worker = async () => {
-    while (nextIndex < limitedCandidates.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await resolver(limitedCandidates[index], index);
-    }
-  };
-
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  const results = await mapWithConcurrency(limitedCandidates, concurrency, resolver);
   return results.filter(Boolean);
 }

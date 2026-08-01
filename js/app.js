@@ -1,3 +1,5 @@
+/* global __NUVIO_APP_VERSION__ */
+
 import "./core/diagnostics/consoleDebugBuffer.js";
 import { detailWatchedEnrichmentService } from "./data/repository/detailWatchedEnrichmentService.js";
 import { Router } from "./ui/navigation/router.js";
@@ -17,6 +19,8 @@ import { Platform } from "./platform/index.js";
 import { SmartHubPreview } from "./platform/tizen/smartHubPreview.js";
 import { LocalStore } from "./core/storage/localStore.js";
 import { I18n } from "./i18n/index.js";
+import { getLatestAppUpdate } from "./core/update/appUpdateService.js";
+import { showAppUpdatePrompt } from "./ui/components/appUpdatePrompt.js";
 
 (function applyLegacyPatches() {
   const originalGetElementById = document.getElementById;
@@ -34,11 +38,42 @@ const GUEST_QR_BYPASS_KEY = "skipAuthQrGate";
 const SIGNED_OUT_ALLOWED_ROUTES = new Set(["trakt"]);
 let hasSelectedProfileThisSession = false;
 let appShellRendered = false;
+let updateCheckStarted = false;
+
+const APP_VERSION = typeof __NUVIO_APP_VERSION__ !== "undefined" ? __NUVIO_APP_VERSION__ : "0.0.0";
 
 function markBootStage(stage) {
   const guard = globalThis.NuvioBootGuard;
   if (guard && typeof guard.stage === "function") {
     guard.stage(stage);
+  }
+}
+
+async function waitForInitialRoute(timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (!Router.getCurrent() && Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return Boolean(Router.getCurrent());
+}
+
+async function checkForAppUpdateOnStartup() {
+  if (updateCheckStarted) {
+    return;
+  }
+  updateCheckStarted = true;
+
+  try {
+    const update = await getLatestAppUpdate({ currentVersion: APP_VERSION });
+    if (!update) {
+      return;
+    }
+    if (!(await waitForInitialRoute())) {
+      return;
+    }
+    showAppUpdatePrompt(update);
+  } catch (error) {
+    console.warn("App update check failed", error);
   }
 }
 
@@ -359,6 +394,7 @@ async function bootstrapApp() {
   ThemeManager.apply();
   I18n.apply();
   warmStreamingLibs({ delayMs: 1400 });
+  void checkForAppUpdateOnStartup();
 
   markBootStage("Restoring session");
   AuthManager.subscribe((state) => {

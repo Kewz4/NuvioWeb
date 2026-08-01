@@ -874,11 +874,13 @@ export const StreamScreen = {
         traktId: this.params?.traktId || null,
         originalItemId: this.params?.originalItemId || null,
         fallbackTitle: this.params?.itemTitle || this.params?.playerTitle || "Untitled",
+        returnToSearchOnBack: Boolean(this.params?.returnToSearchOnBack),
         returnHomeOnBack: Boolean(
-          this.params?.continueWatchingBackHome ||
-          this.params?.returnHomeOnBack ||
-          this.params?.returnToDetail ||
-          this.params?.fromDetailRoute
+          !this.params?.returnToSearchOnBack &&
+          (this.params?.continueWatchingBackHome ||
+            this.params?.returnHomeOnBack ||
+            this.params?.returnToDetail ||
+            this.params?.fromDetailRoute)
         )
       },
       {

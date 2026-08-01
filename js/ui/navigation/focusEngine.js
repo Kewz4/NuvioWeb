@@ -148,7 +148,7 @@ export const FocusEngine = {
 
     const normalizedEvent = buildNormalizedEvent(event);
     const keyIdentity = this.getKeyIdentity(normalizedEvent);
-    if (keyIdentity && !this.activeKeyDownStartedAt.has(keyIdentity)) {
+    if (keyIdentity && (!normalizedEvent.repeat || !this.activeKeyDownStartedAt.has(keyIdentity))) {
       this.activeKeyDownStartedAt.set(keyIdentity, Date.now());
     }
 
@@ -178,12 +178,15 @@ export const FocusEngine = {
   handleKeyUp(event) {
     if (event?.target && !document.contains(event.target)) return;
 
+    const normalizedEvent = buildNormalizedEvent(event);
+    const keyIdentity = this.getKeyIdentity(normalizedEvent);
     if (hasActiveModal()) {
+      if (keyIdentity) {
+        this.activeKeyDownStartedAt.delete(keyIdentity);
+      }
       return;
     }
 
-    const normalizedEvent = buildNormalizedEvent(event);
-    const keyIdentity = this.getKeyIdentity(normalizedEvent);
     if (keyIdentity) {
       const startedAt = Number(this.activeKeyDownStartedAt.get(keyIdentity) || 0);
       normalizedEvent.keyDownDurationMs = startedAt > 0 ? Math.max(0, Date.now() - startedAt) : 0;

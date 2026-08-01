@@ -27,6 +27,7 @@ export function renderModernHomeLayout({
   continueWatchingItems = [],
   continueWatchingLoading = false,
   continueWatchingLoadingCount = 0,
+  continueWatchingRenderLimit = 30,
   useEpisodeThumbnailsInCw = true,
   blurContinueWatchingNextUp = false,
   rowItemLimit = 15,
@@ -143,6 +144,7 @@ export function renderModernHomeLayout({
               rowKey: "continue_watching",
               loading: continueWatchingLoading,
               loadingCount: continueWatchingLoadingCount,
+              itemLimit: continueWatchingRenderLimit,
               useEpisodeThumbnails: useEpisodeThumbnailsInCw,
               blurNextUp: blurContinueWatchingNextUp
             })}

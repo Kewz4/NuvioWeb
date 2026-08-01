@@ -1188,7 +1188,7 @@ export const PlayerController = {
     }
   },
 
-  trySelectAvPlayAudioTrackIndex(trackIndex, { nudge = false } = {}) {
+  trySelectAvPlayAudioTrackIndex(trackIndex) {
     const avplay = this.getAvPlay();
     const targetIndex = Number(trackIndex);
     if (
@@ -1214,9 +1214,6 @@ export const PlayerController = {
         audioTracks: this.avplayAudioTracks
       });
       avplay.setSelectTrack("AUDIO", targetIndex);
-      if (nudge) {
-        this.nudgeAvPlayAfterTrackSwitch();
-      }
       logTizenAvPlayDebug("Tizen AVPlay setSelectTrack(AUDIO) succeeded", {
         state: this.getAvPlayState(),
         targetIndex
@@ -1232,7 +1229,7 @@ export const PlayerController = {
     }
   },
 
-  retryAvPlayAudioTrackSelection(trackIndex, { nudge = false } = {}) {
+  retryAvPlayAudioTrackSelection(trackIndex) {
     const canonicalIndex = this.resolveAvPlayAudioTrackIndex(trackIndex);
     if (canonicalIndex < 0) {
       return false;
@@ -1245,7 +1242,7 @@ export const PlayerController = {
     if (selectionIndex < 0) {
       return false;
     }
-    const attempted = this.trySelectAvPlayAudioTrackIndex(selectionIndex, { nudge });
+    const attempted = this.trySelectAvPlayAudioTrackIndex(selectionIndex);
     return attempted || this.getCurrentAvPlayAudioTrackIndex() === canonicalIndex;
   },
 
@@ -1563,11 +1560,7 @@ export const PlayerController = {
     }
 
     try {
-      if (
-        !this.trySelectAvPlayAudioTrackIndex(selectionIndex, {
-          nudge: state === "PLAYING" || state === "PAUSED"
-        })
-      ) {
+      if (!this.trySelectAvPlayAudioTrackIndex(selectionIndex)) {
         throw new Error("setSelectTrack failed");
       }
       this.pendingAvPlayAudioTrackIndex = -1;
@@ -1578,7 +1571,7 @@ export const PlayerController = {
         if (!this.isUsingAvPlay()) {
           return;
         }
-        this.retryAvPlayAudioTrackSelection(targetIndex, { nudge: canApplyNow });
+        this.retryAvPlayAudioTrackSelection(targetIndex);
         this.applyPendingAvPlayAudioTrackSelection();
         this.syncAvPlayTrackInfo({ force: true });
         this.emitVideoEvent("avplaytrackschanged", { playbackEngine: this.playbackEngine });
@@ -1587,7 +1580,7 @@ export const PlayerController = {
         if (!this.isUsingAvPlay()) {
           return;
         }
-        this.retryAvPlayAudioTrackSelection(targetIndex, { nudge: canApplyNow });
+        this.retryAvPlayAudioTrackSelection(targetIndex);
         this.applyPendingAvPlayAudioTrackSelection();
         this.syncAvPlayTrackInfo({ force: true });
         this.emitVideoEvent("avplaytrackschanged", { playbackEngine: this.playbackEngine });
@@ -1632,13 +1625,9 @@ export const PlayerController = {
     }
 
     try {
-      if (!this.retryAvPlayAudioTrackSelection(canonicalIndex, { nudge: true })) {
+      if (!this.retryAvPlayAudioTrackSelection(canonicalIndex)) {
         const selectionIndex = this.getAvPlayAudioTrackSelectionIndex(canonicalIndex);
-        if (
-          !this.trySelectAvPlayAudioTrackIndex(selectionIndex, {
-            nudge: state === "PLAYING" || state === "PAUSED"
-          })
-        ) {
+        if (!this.trySelectAvPlayAudioTrackIndex(selectionIndex)) {
           throw new Error("setSelectTrack failed");
         }
       }
@@ -3405,7 +3394,7 @@ export const PlayerController = {
     if (Platform.isTizen() && this.isUsingAvPlay()) {
       return [1, 2];
     }
-    return [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+    return [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
   },
 
   isSupportedAvPlayPlaybackRate(speed = 1) {

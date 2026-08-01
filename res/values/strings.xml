@@ -1780,6 +1780,9 @@
     <string name="layout_selection_subtitle">Choose your home screen layout</string>
     <string name="layout_selection_continue">Continue</string>
     <string name="update_title">App Update</string>
+    <string name="update_installer_required">Use Nuvio WebTV Installer to update the app on your TV.</string>
+    <string name="update_release_notes">What\'s new</string>
+    <string name="update_release_notes_unavailable">No release description is available.</string>
     <string name="update_downloading">Downloading update</string>
     <string name="update_download">Download</string>
     <string name="update_downloading_ellipsis">Downloading…</string>
