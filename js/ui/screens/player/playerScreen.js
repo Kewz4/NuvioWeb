@@ -68,6 +68,11 @@ import {
   parseVttCueLayout
 } from "../../../core/player/subtitleCueLayout.js";
 import {
+  createProgressEstimator,
+  formatRemaining,
+  progressPercent
+} from "./subtitleGenerationOverlay.js";
+import {
   activeSubtitleAiKey,
   clearAutoSyncSourceCues,
   generateTargetLanguageSubtitles,
@@ -5021,6 +5026,18 @@ export const PlayerScreen = {
         <div id="playerAudioDialog" class="player-modal player-audio-modal hidden"></div>
         <div id="playerSpeedDialog" class="player-modal player-speed-modal hidden"></div>
         <div id="playerSourcesPanel" class="player-sources-panel hidden"></div>
+        <div id="playerSubtitleGeneration" class="player-modal player-subgen hidden" aria-live="polite">
+          <div class="player-subgen-card">
+            <div class="player-subgen-title"></div>
+            <div class="player-subgen-note">${escapeHtml(t("subtitle_generate_hold_note", {}, "Playback starts as soon as they are ready."))}</div>
+            <div class="player-subgen-track"><i class="player-subgen-fill"></i></div>
+            <div class="player-subgen-stats">
+              <span class="player-subgen-count"></span>
+              <span class="player-subgen-eta"></span>
+            </div>
+            <div class="player-subgen-hint">${escapeHtml(t("subtitle_generate_cancel_hint", {}, "Press Back to cancel."))}</div>
+          </div>
+        </div>
 
         <div id="playerControlsOverlay" class="player-controls-overlay">
           <div class="player-controls-gradient player-controls-gradient-top"></div>
@@ -5033,7 +5050,10 @@ export const PlayerScreen = {
 
           <div class="player-controls-bottom">
             <div class="player-meta">
-              <div class="player-title">${escapeHtml(header.title)}</div>
+              <div class="player-title">
+                ${this.params?.isLiveChannel ? `<span class="player-live-badge">${escapeHtml(t("player_live_badge", {}, "LIVE"))}</span>` : ""}
+                ${escapeHtml(header.title)}
+              </div>
               ${header.subtitle ? `<div class="player-subtitle">${escapeHtml(header.subtitle)}</div>` : ""}
               ${header.meta ? `<div class="player-meta-tertiary">${escapeHtml(header.meta)}</div>` : ""}
             </div>
@@ -5111,6 +5131,19 @@ export const PlayerScreen = {
           nextEpisodeCard: uiRoot.querySelector("#playerNextEpisodeCard"),
           modalBackdrop: uiRoot.querySelector("#playerModalBackdrop"),
           subtitleDialog: uiRoot.querySelector("#playerSubtitleDialog"),
+          subtitleGeneration: uiRoot.querySelector("#playerSubtitleGeneration"),
+          subtitleGenerationTitle: uiRoot.querySelector(
+            "#playerSubtitleGeneration .player-subgen-title"
+          ),
+          subtitleGenerationFill: uiRoot.querySelector(
+            "#playerSubtitleGeneration .player-subgen-fill"
+          ),
+          subtitleGenerationCount: uiRoot.querySelector(
+            "#playerSubtitleGeneration .player-subgen-count"
+          ),
+          subtitleGenerationEta: uiRoot.querySelector(
+            "#playerSubtitleGeneration .player-subgen-eta"
+          ),
           audioDialog: uiRoot.querySelector("#playerAudioDialog"),
           speedDialog: uiRoot.querySelector("#playerSpeedDialog"),
           sourcesPanel: uiRoot.querySelector("#playerSourcesPanel"),
@@ -9028,7 +9061,17 @@ export const PlayerScreen = {
       "controls-visible",
       Boolean(this.controlsVisible) && !this.isExternalFrameMode()
     );
+    // A live channel is a different medium, not a movie with an unknown length.
+    // The class strips the chrome that only means something for a recording —
+    // the scrub bar, the elapsed/total clock, the "ends at" estimate — so the
+    // viewer is not offered controls that cannot do anything.
+    root.classList.toggle("player-live", this.isLiveChannelPlayback());
     this.syncPlayerActionOverlayOffset();
+  },
+
+  /** True when the current playback is a Live TV channel rather than a title. */
+  isLiveChannelPlayback() {
+    return Boolean(this.params?.isLiveChannel);
   },
 
   measurePlayerActionOverlayOffset() {
@@ -16863,36 +16906,161 @@ export const PlayerScreen = {
   },
 
   /**
-   * Holds playback while a full subtitle track is generated.
-   * @returns {boolean} true when this call is what paused it, so only we resume.
+   * Holds playback for the whole of a subtitle generation.
+   *
+   * A single pause() is not enough. Generation runs for minutes, and in that
+   * time the engine's own readiness handlers, the autoplay policy and the
+   * dialog teardown can each call play(). If any of them wins, the episode runs
+   * on with no subtitles — the exact thing this feature exists to prevent — so
+   * the hold is enforced by a watchdog rather than trusted to one call.
    */
   holdPlaybackForSubtitleGeneration() {
     const video = PlayerController.video;
     const wasPlaying = Boolean(video && !video.paused);
-    if (wasPlaying) {
-      PlayerController.pause();
-      this.renderControlButtons?.();
+    PlayerController.pause();
+    this.renderControlButtons?.();
+
+    if (this.subtitleGenerationHoldTimer) {
+      clearInterval(this.subtitleGenerationHoldTimer);
     }
+    this.subtitleGenerationHoldTimer = setInterval(() => {
+      if (!this.subtitleGenerationRunning) {
+        return;
+      }
+      const current = PlayerController.video;
+      if (current && !current.paused) {
+        try {
+          current.pause();
+        } catch (_) {
+          PlayerController.pause();
+        }
+      }
+    }, 500);
     return wasPlaying;
   },
 
   releasePlaybackAfterSubtitleGeneration() {
+    if (this.subtitleGenerationHoldTimer) {
+      clearInterval(this.subtitleGenerationHoldTimer);
+      this.subtitleGenerationHoldTimer = null;
+    }
+    if (this.subtitleGenerationResumeTimer) {
+      clearTimeout(this.subtitleGenerationResumeTimer);
+      this.subtitleGenerationResumeTimer = null;
+    }
+
+    // Resuming is retried rather than assumed: resume() is swallowed while a
+    // modal still holds focus, and the overlay is torn down in the same tick,
+    // so the first attempt can land before the player is ready to accept it.
+    // Leaving the viewer on a frozen frame after a successful generation is the
+    // worst possible outcome, so try a few times over ~1.5s before giving up.
+    let attempt = 0;
+    const tryResume = () => {
+      const video = PlayerController.video;
+      if (!video || !video.paused || this.subtitleGenerationRunning) {
+        this.subtitleGenerationResumeTimer = null;
+        return;
+      }
+      try {
+        const played = video.play?.();
+        // A rejected play() promise is expected while the engine settles.
+        played?.catch?.(() => {});
+      } catch (_) {
+        PlayerController.resume();
+      }
+      this.renderControlButtons?.();
+      attempt += 1;
+      if (attempt < 4) {
+        this.subtitleGenerationResumeTimer = setTimeout(tryResume, 400);
+      } else {
+        this.subtitleGenerationResumeTimer = null;
+      }
+    };
+
     PlayerController.resume();
     this.renderControlButtons?.();
-    // Verify rather than assume: resume() can be swallowed while a modal has
-    // focus, which would strand the viewer on a frozen frame after a failed
-    // generation. Re-issue once on the next tick if the video is still paused.
-    setTimeout(() => {
-      const video = PlayerController.video;
-      if (video && video.paused && !this.subtitleGenerationRunning) {
-        try {
-          video.play?.();
-        } catch (_) {
-          PlayerController.resume();
-        }
-        this.renderControlButtons?.();
-      }
-    }, 400);
+    this.subtitleGenerationResumeTimer = setTimeout(tryResume, 250);
+  },
+
+  /* Subtitle generation overlay ------------------------------------------- */
+
+  /** Opens the overlay and resets its progress state. */
+  showSubtitleGenerationOverlay({ languageLabel = "" } = {}) {
+    const overlay = this.uiRefs?.subtitleGeneration;
+    if (!overlay) {
+      return;
+    }
+    this.subtitleGenerationEstimator = createProgressEstimator(Date.now());
+    this.subtitleGenerationCancelled = false;
+    if (this.uiRefs.subtitleGenerationTitle) {
+      this.uiRefs.subtitleGenerationTitle.textContent = t(
+        "subtitle_generate_working",
+        { 1: languageLabel },
+        `Preparing subtitles in ${languageLabel}`
+      );
+    }
+    this.updateSubtitleGenerationProgress({ done: 0, total: 0 });
+    overlay.classList.remove("hidden");
+  },
+
+  /**
+   * Repaints the bar, the line count and the estimate.
+   *
+   * Called on every progress tick, so it touches text nodes and one width
+   * rather than re-rendering: this runs while the TV is also streaming model
+   * responses, and a full re-render here made the bar visibly stutter.
+   */
+  updateSubtitleGenerationProgress({ done = 0, total = 0, retrying = 0 } = {}) {
+    const overlay = this.uiRefs?.subtitleGeneration;
+    if (!overlay || overlay.classList.contains("hidden")) {
+      return;
+    }
+    const estimator = this.subtitleGenerationEstimator;
+    if (estimator && total > 0) {
+      estimator.record(done, Date.now());
+    }
+
+    if (this.uiRefs.subtitleGenerationFill) {
+      this.uiRefs.subtitleGenerationFill.style.width = `${progressPercent(done, total)}%`;
+    }
+    if (this.uiRefs.subtitleGenerationCount) {
+      this.uiRefs.subtitleGenerationCount.textContent = retrying
+        ? t("subtitle_generate_retrying", { 1: retrying }, `Finishing ${retrying} lines…`)
+        : t("subtitle_generate_lines", { 1: done, 2: total }, `${done} of ${total} lines`);
+    }
+    if (this.uiRefs.subtitleGenerationEta) {
+      const remaining = estimator ? estimator.remainingMs(done, total) : null;
+      this.uiRefs.subtitleGenerationEta.textContent =
+        remaining == null ? "" : formatRemaining(remaining, t);
+    }
+  },
+
+  hideSubtitleGenerationOverlay() {
+    this.uiRefs?.subtitleGeneration?.classList.add("hidden");
+    this.subtitleGenerationEstimator = null;
+  },
+
+  /** True when the viewer asked to stop generating. */
+  isSubtitleGenerationCancelled() {
+    return Boolean(this.subtitleGenerationCancelled);
+  },
+
+  /**
+   * Abandons the run and lets the episode play untranslated.
+   *
+   * Cancelling has to be possible: the estimate can turn out to be minutes, and
+   * trapping someone behind a progress bar with no way out is worse than
+   * watching without subtitles.
+   */
+  cancelSubtitleGeneration() {
+    if (!this.subtitleGenerationRunning) {
+      return false;
+    }
+    this.subtitleGenerationCancelled = true;
+    this.showSubtitleAiToast?.(
+      t("subtitle_generate_cancelled", {}, "Subtitle generation cancelled.")
+    );
+    return true;
   },
 
   /** URL of the addon subtitle currently selected, or "" when none is. */
@@ -18645,6 +18813,19 @@ export const PlayerScreen = {
   async onKeyDown(event) {
     const keyCode = Number(event?.keyCode || 0);
     const isBackKey = isBackEvent(event);
+    // While subtitles are being generated the episode is deliberately held, so
+    // every other key would appear to do nothing. Back is the way out, and it
+    // stops the generation rather than leaving the player — leaving would strand
+    // the run and waste the household's daily quota.
+    if (this.subtitleGenerationRunning) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      event?.stopImmediatePropagation?.();
+      if (isBackKey) {
+        this.cancelSubtitleGeneration();
+      }
+      return;
+    }
     if (this.isStartupErrorVisible()) {
       event?.preventDefault?.();
       event?.stopPropagation?.();

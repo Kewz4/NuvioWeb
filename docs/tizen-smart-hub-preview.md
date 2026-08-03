@@ -17,8 +17,31 @@ The preview contains at most 21 tiles in this order:
 Media tiles deep-link to their Nuvio detail screen. Continue Watching tiles pass the saved
 episode and resume state so Nuvio can continue playback. Collection tiles open the imported
 Xperience folder when it exists and otherwise open that folder's primary movie catalog.
-Samsung's Tizen 6.5 launcher flattens the sections into one strip, so every visible tile title is
-prefixed with its category and configured with `title_display_mode: "AlwaysOn"`.
+
+## Card text
+
+Samsung draws the card itself. The only things this app controls are `title`, `subtitle`,
+`image_url`, `image_ratio` and `is_playable` — there is no way to place a custom badge or button
+on the artwork, so the wording has to do that work. Setting `is_playable: true` is what makes the
+launcher draw its own play affordance, which is why only Continue Watching tiles carry it.
+
+Tizen 6.5's launcher flattens the sections into one strip and hides the row headers, so each tile
+states its own reason. The badge on the title is kept short because the card truncates at roughly
+thirty characters, and anything spent on the category is taken from the title the viewer is
+actually scanning for:
+
+| Row                 | Title                           | Subtitle                       |
+| ------------------- | ------------------------------- | ------------------------------ |
+| Continuar viendo    | `▶ Sigue viendo · MasterChef`   | `T16 E2 · faltan 33 min`       |
+| Porque viste        | `★ Para ti · Blade Runner 2049` | `Porque viste · Película`      |
+| Top 10 de Netflix   | `#1 Netflix · Wicked`           | `Top 10 de Netflix · Película` |
+| Studios / Streaming | `Marvel`                        | `Studios`                      |
+
+Badge glyphs come from the geometric-shapes block (`▶`, `★`) rather than colour emoji, which
+render as an empty box on some AU8000 firmware. Continue Watching says how much time is left
+rather than a percentage watched, falling back to the percentage for entries saved without a
+duration. Sections still declare `title_display_mode: "AlwaysOn"` for launchers that do show
+headers.
 
 The foreground app sends each personalized snapshot to the preview service through both
 AppControl data and package-private storage. The service keeps the last valid personalized

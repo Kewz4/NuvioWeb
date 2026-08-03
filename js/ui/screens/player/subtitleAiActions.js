@@ -528,8 +528,12 @@ export async function generateTargetLanguageSubtitles(screen) {
   // already pauses, so keying off "did WE pause it" left the viewer staring at
   // a frozen frame after generation finished. The brief is explicit: hold the
   // episode, generate, then let it play.
-  screen.holdPlaybackForSubtitleGeneration?.();
   screen.subtitleGenerationRunning = true;
+  screen.holdPlaybackForSubtitleGeneration?.();
+  screen.showSubtitleGenerationOverlay?.({ languageLabel: label });
+
+  // The run ends early if the viewer leaves the title or cancels.
+  const shouldStop = () => !stillSameTitle() || Boolean(screen.isSubtitleGenerationCancelled?.());
 
   try {
     const body = await downloadSubtitleText(screen, source.url);
@@ -549,24 +553,20 @@ export async function generateTargetLanguageSubtitles(screen) {
           if (!stillSameTitle()) {
             return;
           }
-          screen.showSubtitleAiToast?.(
-            retrying
-              ? t("subtitle_generate_retrying", { 1: retrying }, `Finishing ${retrying} lines…`)
-              : t(
-                  "subtitle_generate_progress",
-                  { 1: done, 2: total },
-                  `Generating subtitles ${done}/${total}…`
-                ),
-            { sticky: true }
-          );
+          screen.updateSubtitleGenerationProgress?.({ done, total, retrying });
         },
-        shouldStop: () => !stillSameTitle()
+        shouldStop
       })
     );
 
     if (!stillSameTitle()) {
       // The viewer moved on. The work is still cached against this subtitle
       // URL, so returning to the episode reuses it instantly.
+      return null;
+    }
+    if (screen.isSubtitleGenerationCancelled?.()) {
+      // Cancelled mid-run: a partial track is worse than none, so the episode
+      // simply plays on without it.
       return null;
     }
 
@@ -588,6 +588,7 @@ export async function generateTargetLanguageSubtitles(screen) {
   } finally {
     if (stillSameTitle()) {
       screen.subtitleGenerationRunning = false;
+      screen.hideSubtitleGenerationOverlay?.();
       screen.releasePlaybackAfterSubtitleGeneration?.();
     }
   }

@@ -21711,3 +21711,120 @@ html.legacy-webos .debug-console-log-frame {
   font-size: 22px;
   line-height: 1.5;
 }
+
+/* ==========================================================================
+   Subtitle generation overlay
+   --------------------------------------------------------------------------
+   Shown while a whole subtitle track is translated, which holds playback for
+   minutes on a long episode. A one-line toast was not enough: with the picture
+   frozen and no visible progress the TV reads as crashed, and the natural
+   reaction is to start pressing buttons. This states what is happening, how far
+   along it is, roughly how long is left, and how to stop.
+   ========================================================================== */
+
+.player-subgen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 60;
+}
+
+.player-subgen.hidden {
+  display: none;
+}
+
+.player-subgen-card {
+  width: min(820px, 64vw);
+  padding: 44px 52px;
+  border-radius: 22px;
+  background: var(--card-bg, #141414);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+.player-subgen-title {
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--text-color, #ffffff);
+  margin-bottom: 12px;
+}
+
+.player-subgen-note {
+  font-size: 24px;
+  color: var(--text-secondary, #b3b3b3);
+  margin-bottom: 32px;
+}
+
+.player-subgen-track {
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+
+.player-subgen-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--focus-color, #ffffff);
+  /* Eased rather than instant: batches land in jumps of sixty lines, and an
+     unanimated bar looks like it is skipping rather than progressing. */
+  transition: width 0.35s ease;
+}
+
+.player-subgen-stats {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+  font-size: 23px;
+  color: var(--text-color, #ffffff);
+}
+
+.player-subgen-eta {
+  color: var(--text-secondary, #b3b3b3);
+}
+
+.player-subgen-hint {
+  margin-top: 28px;
+  font-size: 20px;
+  color: var(--text-secondary, #b3b3b3);
+}
+
+/* ==========================================================================
+   Live TV playback
+   --------------------------------------------------------------------------
+   A channel is a different medium from a recording. There is no position to
+   scrub to, no total length, and no meaningful "ends at" time, so the chrome
+   that expresses those is removed rather than left showing zeroes — an inert
+   scrub bar invites a viewer to try to seek and conclude the app is broken.
+   ========================================================================== */
+
+.player-live .player-progress-shell,
+.player-live .player-time-label,
+.player-live .player-ends-at {
+  display: none;
+}
+
+/* The row loses its scrub bar, so the buttons carry the whole bar themselves. */
+.player-live .player-controls-bar {
+  padding-top: 8px;
+}
+
+.player-live-badge {
+  display: inline-block;
+  margin-right: 14px;
+  padding: 4px 14px;
+  border-radius: 6px;
+  background: var(--error-color, #e50914);
+  color: #ffffff;
+  font-size: 0.55em;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  vertical-align: middle;
+  text-transform: uppercase;
+}

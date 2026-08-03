@@ -1,6 +1,10 @@
 const MAX_PREVIEW_TILES = 40;
 const ACTION_VERSION = 1;
 
+// U+25B6 BLACK RIGHT-POINTING TRIANGLE: present in effectively every system
+// font, unlike the colour play emoji, and instantly readable as "resume".
+const CONTINUE_WATCHING_BADGE = Object.freeze({ icon: "▶", label: "Sigue viendo" });
+
 function firstNonEmpty(...values) {
   for (const value of values) {
     const normalized = String(value || "").trim();
@@ -77,19 +81,59 @@ function encodeAction(action = {}) {
   });
 }
 
-function addVisibleSectionLabel(tile, sectionTitle) {
+/**
+ * Prefixes a tile title with the reason it is on screen.
+ *
+ * Samsung draws the card itself: the only text we control is `title` and
+ * `subtitle`, and Tizen 6.5's launcher flattens our sections into one strip, so
+ * the section header the reason would normally live in is never shown. Without
+ * a prefix every card looks like an unexplained recommendation.
+ *
+ * The prefix is kept SHORT on purpose. A card truncates its title at roughly
+ * thirty characters, and the old format ("Top 10 de Netflix · Películas · Wicked")
+ * spent all of them on the category, so the one thing the viewer was actually
+ * looking for — the film's name — was always the part cut off.
+ *
+ * Glyphs are drawn from the geometric-shapes block rather than emoji: colour
+ * emoji fall back to an empty box on some AU8000 firmware, and a box is worse
+ * than no icon at all.
+ */
+function applyTileBadge(tile, badge = {}, rank = null) {
   if (!tile) {
     return null;
   }
-  const label = firstNonEmpty(sectionTitle);
   const itemTitle = firstNonEmpty(tile.title);
-  if (!label || !itemTitle) {
+  if (!itemTitle) {
     return tile;
   }
+  const icon = firstNonEmpty(badge.icon);
+  const label = firstNonEmpty(badge.label);
+  const rankedLabel =
+    label && Number.isFinite(rank) ? `#${Math.trunc(rank)} ${label}` : label || "";
+  const prefix = [icon, rankedLabel].filter(Boolean).join(" ");
   return {
     ...tile,
-    title: `${label} · ${itemTitle}`
+    title: prefix ? `${prefix} · ${itemTitle}` : itemTitle
   };
+}
+
+/** "faltan 23 min" — how much of the episode is left, which is what a viewer weighs. */
+function formatRemainingWatchTime(item = {}) {
+  const durationMs = Number(item.durationMs || 0);
+  const positionMs = Number(item.positionMs || 0);
+  if (!(durationMs > 0) || !(positionMs >= 0) || positionMs >= durationMs) {
+    return "";
+  }
+  const remainingMinutes = Math.round((durationMs - positionMs) / 60000);
+  if (remainingMinutes < 1) {
+    return "casi al final";
+  }
+  if (remainingMinutes < 60) {
+    return `faltan ${remainingMinutes} min`;
+  }
+  const hours = Math.floor(remainingMinutes / 60);
+  const minutes = remainingMinutes % 60;
+  return minutes ? `faltan ${hours} h ${minutes} min` : `faltan ${hours} h`;
 }
 
 function formatEpisodeSubtitle(item = {}) {
@@ -120,7 +164,13 @@ function buildContinueWatchingTile(item = {}, position = 0) {
   if (episodeSubtitle) {
     subtitleParts.push(episodeSubtitle);
   }
-  if (progressPercent != null) {
+  // "faltan 23 min" answers the question actually being asked ("do I have time
+  // for this?"); "42% visto" makes the viewer do the arithmetic. The percentage
+  // stays as the fallback for entries saved without a duration.
+  const remaining = formatRemainingWatchTime(item);
+  if (remaining) {
+    subtitleParts.push(remaining);
+  } else if (progressPercent != null) {
     subtitleParts.push(`${Math.max(0, Math.min(100, Math.round(progressPercent)))}% visto`);
   }
   return {
@@ -150,16 +200,19 @@ function buildContinueWatchingTile(item = {}, position = 0) {
   };
 }
 
-function buildCatalogTile(item = {}, position = 0, sectionKey = "catalog") {
+function buildCatalogTile(item = {}, position = 0, sectionKey = "catalog", reason = "") {
   const itemId = firstNonEmpty(item.id, item.contentId);
   const itemType = isSeriesType(item.type || item.apiType) ? "series" : "movie";
   const image = resolvePreviewImage(item);
   if (!itemId || !image) {
     return null;
   }
+  const kindLabel = itemType === "series" ? "Serie" : "Película";
   return {
     title: firstNonEmpty(item.name, item.title, itemId),
-    subtitle: itemType === "series" ? "Serie" : "Película",
+    // The title carries a short badge so the film's own name survives
+    // truncation; the subtitle has room for the reason spelled out.
+    subtitle: [firstNonEmpty(reason), kindLabel].filter(Boolean).join(" · "),
     image_url: image.imageUrl,
     image_ratio: image.imageRatio,
     action_data: encodeAction({
@@ -231,7 +284,7 @@ export function buildSmartHubPreviewPayload({
   const continueSectionTitle = "Continuar viendo";
   const continueTiles = (Array.isArray(continueWatching) ? continueWatching : [])
     .map((item, index) => buildContinueWatchingTile(item, index))
-    .map((tile) => addVisibleSectionLabel(tile, continueSectionTitle))
+    .map((tile) => applyTileBadge(tile, CONTINUE_WATCHING_BADGE))
     .filter(Boolean)
     .slice(0, Math.max(0, Number(continueWatchingLimit || 0)));
   if (continueTiles.length) {
@@ -245,9 +298,20 @@ export function buildSmartHubPreviewPayload({
 
   (Array.isArray(catalogSections) ? catalogSections : []).forEach((section, sectionIndex) => {
     const sectionTitle = firstNonEmpty(section.title, "Xperience");
+    const badge = {
+      icon: firstNonEmpty(section.badgeIcon),
+      label: firstNonEmpty(section.badgeLabel, sectionTitle)
+    };
     const tiles = (Array.isArray(section.items) ? section.items : [])
-      .map((item, index) => buildCatalogTile(item, index, firstNonEmpty(section.key, sectionTitle)))
-      .map((tile) => addVisibleSectionLabel(tile, sectionTitle))
+      .map((item, index) =>
+        buildCatalogTile(
+          item,
+          index,
+          firstNonEmpty(section.key, sectionTitle),
+          firstNonEmpty(section.reason)
+        )
+      )
+      .map((tile, index) => applyTileBadge(tile, badge, section.showRank ? index + 1 : null))
       .filter(Boolean)
       .slice(0, Math.max(0, Number(section.limit || section.items.length || 0)));
     if (tiles.length) {
@@ -265,7 +329,9 @@ export function buildSmartHubPreviewPayload({
     const sectionTitle = firstNonEmpty(section.title, "Colecciones");
     const tiles = (Array.isArray(section.shortcuts) ? section.shortcuts : [])
       .map((shortcut, index) => buildFolderTile(section, shortcut, index, addon))
-      .map((tile) => addVisibleSectionLabel(tile, sectionTitle))
+      // Folder tiles keep their own name unprefixed: "Marvel" and "Netflix"
+      // already say what they are, and "Studios · Marvel" only spends
+      // characters. The section name still rides along in the subtitle.
       .filter(Boolean);
     if (tiles.length) {
       sections.push({

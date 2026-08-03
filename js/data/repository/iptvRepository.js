@@ -23,6 +23,7 @@ import {
   parseXmltvProgrammeChannelIds
 } from "../../core/iptv/epgIndex.js";
 import { buildGuideKeyIndex, resolveGuideChannelId } from "../../core/iptv/channelMatch.js";
+import { dedupeChannels } from "../../core/iptv/channelDedupe.js";
 import { defaultGuideSources } from "../../core/iptv/guideSources.js";
 
 export const PLAYLIST_TTL_MS = 6 * 60 * 60 * 1000;
@@ -263,7 +264,10 @@ export async function loadIptvSnapshot(settings = {}, deps = {}) {
     })
   );
 
-  const qualityFiltered = filterChannelsByMinQuality(channelSets.flat(), settings.minQuality);
+  // Deduplicate before filtering: the shipped sources overlap heavily, and the
+  // best copy of a channel is often the one a later playlist carries.
+  const { channels: uniqueChannels } = dedupeChannels(channelSets.flat());
+  const qualityFiltered = filterChannelsByMinQuality(uniqueChannels, settings.minQuality);
   // Channels already proven dead never re-enter the list, so a category the
   // viewer scrolled yesterday does not fill back up with broken rows today.
   const excluded =

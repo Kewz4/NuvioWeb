@@ -13,10 +13,21 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
   continueWatchingLimit: 3,
   continueWatchingCandidateLimit: 12,
   refreshDebounceMs: 15000,
+  // `title` names the row for the Smart Hub payload; `badgeLabel` is what
+  // actually reaches the viewer, prefixed onto each tile because Tizen 6.5
+  // hides the row headers. It is deliberately shorter than the row title: the
+  // card truncates at roughly thirty characters, and every character spent on
+  // the category is one the film's own name does not get.
+  //
+  // The type ("Películas"/"Series") is dropped from the badge — the artwork
+  // already shows it, and the tile subtitle still says so in words.
   catalogSections: Object.freeze([
     Object.freeze({
       key: "because-movies",
       title: "Porque viste · Películas",
+      badgeIcon: "★",
+      badgeLabel: "Para ti",
+      reason: "Porque viste",
       type: "movie",
       catalogId: "recs_because_movies",
       limit: 2
@@ -24,6 +35,9 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
     Object.freeze({
       key: "because-series",
       title: "Porque viste · Series",
+      badgeIcon: "★",
+      badgeLabel: "Para ti",
+      reason: "Porque viste",
       type: "series",
       catalogId: "recs_because_series",
       limit: 2
@@ -31,6 +45,11 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
     Object.freeze({
       key: "netflix-top10-movies",
       title: "Top 10 de Netflix · Películas",
+      // The rank is the whole point of a top-ten row, so each tile carries its
+      // own position rather than repeating the row name.
+      badgeLabel: "Netflix",
+      reason: "Top 10 de Netflix",
+      showRank: true,
       type: "movie",
       catalogId: "snoak_netflix_top10_movies",
       limit: 2
@@ -38,6 +57,9 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
     Object.freeze({
       key: "netflix-top10-series",
       title: "Top 10 de Netflix · Series",
+      badgeLabel: "Netflix",
+      reason: "Top 10 de Netflix",
+      showRank: true,
       type: "series",
       catalogId: "snoak_netflix_top10_series",
       limit: 2

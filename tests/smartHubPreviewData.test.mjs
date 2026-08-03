@@ -75,12 +75,61 @@ test("builds the requested 21-tile Smart Hub layout in priority order", () => {
   assert.equal(JSON.parse(payload.sections[0].tiles[0].action_data).source, "continue-watching");
   assert.equal(JSON.parse(payload.sections[1].tiles[0].action_data).source, "xperience");
   assert.equal(JSON.parse(payload.sections[5].tiles[0].action_data).kind, "collection-folder");
-  assert.equal(payload.sections[0].tiles[0].title, "Continuar viendo · Continue 0");
-  assert.equal(
-    payload.sections[3].tiles[0].title,
-    "Top 10 de Netflix · Películas · movie-netflix-top10-movies-1"
+  // Tizen 6.5 hides the row headers, so each tile states why it is there — but
+  // briefly, because the card truncates and the media name must survive.
+  assert.equal(payload.sections[0].tiles[0].title, "▶ Sigue viendo · Continue 0");
+  // Short badge on the title so the media name survives; the reason spelled
+  // out on the subtitle, where there is room for it.
+  assert.equal(payload.sections[1].tiles[0].title, "★ Para ti · movie-because-movies-1");
+  assert.equal(payload.sections[1].tiles[0].subtitle, "Porque viste · Película");
+  assert.equal(payload.sections[3].tiles[0].subtitle, "Top 10 de Netflix · Película");
+  // A top-ten row carries each tile's rank, which is the reason to look at it.
+  assert.equal(payload.sections[3].tiles[0].title, "#1 Netflix · movie-netflix-top10-movies-1");
+  assert.equal(payload.sections[3].tiles[1].title, "#2 Netflix · movie-netflix-top10-movies-2");
+  // A studio name explains itself; prefixing it only costs characters.
+  assert.equal(payload.sections[5].tiles[0].title, "Marvel");
+  assert.equal(payload.sections[5].tiles[0].subtitle, "Studios");
+
+  // Every visible title has to survive the card's truncation.
+  payload.sections.forEach((section) =>
+    section.tiles.forEach((tile) =>
+      assert.ok(
+        tile.title.length <= 46,
+        `tile title too long to render: ${JSON.stringify(tile.title)}`
+      )
+    )
   );
-  assert.equal(payload.sections[5].tiles[0].title, "Studios · Marvel");
+});
+
+test("continue watching says how much is left, not what percentage is done", () => {
+  const payload = buildSmartHubPreviewPayload({
+    continueWatching: [
+      {
+        contentId: "tt-a",
+        contentType: "series",
+        title: "Serie",
+        season: 2,
+        episode: 4,
+        positionMs: 12 * 60000,
+        durationMs: 45 * 60000,
+        progressPercent: 27,
+        background: "https://image.tmdb.org/t/p/w1280/a.jpg"
+      },
+      {
+        // No duration saved: the percentage remains the only thing we can say.
+        contentId: "tt-b",
+        contentType: "movie",
+        title: "Peli",
+        progressPercent: 40,
+        background: "https://image.tmdb.org/t/p/w1280/b.jpg"
+      }
+    ]
+  });
+
+  assert.equal(payload.sections[0].tiles[0].subtitle, "T2 E4 · faltan 33 min");
+  assert.equal(payload.sections[0].tiles[1].subtitle, "40% visto");
+  // Samsung draws its own play affordance on playable tiles.
+  assert.equal(payload.sections[0].tiles[0].is_playable, true);
 });
 
 test("accepts only image formats supported by Samsung Smart Hub Preview", () => {

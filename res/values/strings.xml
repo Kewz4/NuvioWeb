@@ -2729,6 +2729,7 @@
     <string name="iptv_category_culture">Culture and education</string>
     <string name="iptv_category_religious">Religious</string>
     <string name="iptv_category_general">General channels</string>
+    <string name="player_live_badge">Live</string>
     <string name="iptv_no_channels">No live channels here right now.</string>
     <string name="iptv_dpad_hint">Left and Right switch between categories and channels. Up and Down scroll.</string>
     <string name="iptv_guide_on_demand">This playlist is very large, so the guide loads per channel.</string>
@@ -2751,6 +2752,15 @@
     <string name="subtitle_generate_prompt">There is no source of %1$s subtitles for this stream. Generate them?</string>
     <string name="subtitle_generate_progress">Generating subtitles %1$d/%2$d… playback resumes when ready.</string>
     <string name="subtitle_generate_retrying">Finishing the last %1$d lines…</string>
+    <string name="subtitle_generate_working">Preparing subtitles in %1$s</string>
+    <string name="subtitle_generate_hold_note">Playback starts as soon as they are ready.</string>
+    <string name="subtitle_generate_lines">%1$d of %2$d lines</string>
+    <string name="subtitle_generate_cancel_hint">Press Back to cancel.</string>
+    <string name="subtitle_generate_cancelled">Subtitle generation cancelled.</string>
+    <string name="subtitle_generate_eta_almost">almost done</string>
+    <string name="subtitle_generate_eta_seconds">about %1$d s left</string>
+    <string name="subtitle_generate_eta_minutes">about %1$d min left</string>
+    <string name="subtitle_generate_eta_hours">about %1$d h %2$d min left</string>
     <string name="subtitle_generate_done">Subtitles ready in %1$s</string>
     <string name="subtitle_generate_failed">Could not generate subtitles: %1$s</string>
     <string name="subtitle_generate_no_source">This stream has no subtitle track to translate from.</string>
