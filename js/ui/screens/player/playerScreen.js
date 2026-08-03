@@ -439,9 +439,9 @@ const SUBTITLE_DELAY_MIN_MS = -60000;
 const SUBTITLE_DELAY_MAX_MS = 60000;
 // Generated tracks inherit the source file's timings, and the sources this
 // build translates from run consistently ahead of the streams it plays against.
-// Measured at eight seconds on this household's content; the viewer can still
-// adjust it from the subtitle menu like any other delay.
-const AI_SUBTITLE_DEFAULT_DELAY_MS = 8000;
+// Measured at 700ms on this household's content; the viewer can still adjust it
+// from the subtitle menu like any other delay.
+const AI_SUBTITLE_DEFAULT_DELAY_MS = 700;
 const SUBTITLE_DELAY_STEP_MS = 100;
 const SUBTITLE_FONT_STEP = 10;
 const SUBTITLE_VERTICAL_OFFSET_STEP = SUBTITLE_VERTICAL_OFFSET_PLAYER_STEP;

@@ -149,6 +149,20 @@ function formatEpisodeSubtitle(item = {}) {
   return firstNonEmpty(item.episodeTitle) ? `${code} · ${item.episodeTitle}` : code;
 }
 
+/** Percentage watched, derived from position/duration when not stored. */
+function resolveProgressPercent(item = {}) {
+  const stored = numberOrNull(item.progressPercent);
+  if (stored != null) {
+    return stored;
+  }
+  const durationMs = Number(item.durationMs || 0);
+  const positionMs = Number(item.positionMs || 0);
+  if (!(durationMs > 0) || !(positionMs > 0)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, (positionMs / durationMs) * 100));
+}
+
 function buildContinueWatchingTile(item = {}, position = 0) {
   const meta = item.enrichedMeta && typeof item.enrichedMeta === "object" ? item.enrichedMeta : {};
   const merged = { ...item, ...meta };
@@ -158,7 +172,10 @@ function buildContinueWatchingTile(item = {}, position = 0) {
   if (!itemId || !image) {
     return null;
   }
-  const progressPercent = numberOrNull(item.progressPercent);
+  // Locally stored progress keeps position and duration but no percentage;
+  // only the Trakt path carries one. Deriving it here means the resume bar is
+  // drawn for every entry rather than just the synced ones.
+  const progressPercent = resolveProgressPercent(item);
   const episodeSubtitle = formatEpisodeSubtitle(item);
   const subtitleParts = [];
   if (episodeSubtitle) {

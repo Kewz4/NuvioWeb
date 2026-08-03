@@ -52,9 +52,15 @@ const CHANNEL_PREFETCH_ROWS = 12;
 // the viewer can see where the list is going instead of riding its edge.
 const SCROLL_CONTEXT_ROWS = 2;
 
-// Probing every row of a 1000-channel category up front would take minutes, so
-// only what is on screen (plus a little ahead) is checked, as it is reached.
+// Rows around the highlight are probed first and fast, so the viewer never
+// reaches a dead row before it is checked.
 const HEALTH_PROBE_LOOKAHEAD = 24;
+// The rest of the category is then swept in the background at a gentler rate.
+// Checking only a window meant a dead channel forty rows down survived until
+// someone scrolled onto it; sweeping the whole category means the list settles
+// to only working channels while it is being browsed.
+const HEALTH_SWEEP_BATCH = 40;
+const HEALTH_SWEEP_CONCURRENCY = 3;
 
 /**
  * Holds an index inside [0, count).
@@ -250,9 +256,15 @@ export const IptvScreen = {
       return;
     }
     const from = Math.max(0, this.channelIndex - SCROLL_CONTEXT_ROWS);
-    const candidates = channels
-      .slice(from, from + HEALTH_PROBE_LOOKAHEAD)
-      .filter((channel) => channel && !this.probedChannelIds.has(channel.id));
+    const unprobed = (list) => list.filter((c) => c && !this.probedChannelIds.has(c.id));
+    // What the viewer is about to reach takes priority; whatever is left of the
+    // category is swept behind it so the whole list ends up verified.
+    let candidates = unprobed(channels.slice(from, from + HEALTH_PROBE_LOOKAHEAD));
+    let background = false;
+    if (!candidates.length) {
+      candidates = unprobed(channels).slice(0, HEALTH_SWEEP_BATCH);
+      background = true;
+    }
     if (!candidates.length) {
       return;
     }
@@ -264,6 +276,9 @@ export const IptvScreen = {
 
     void probeChannels(candidates, {
       headers: iptvRequestHeaders(this.settings.userAgent),
+      // The background sweep runs slower on purpose: it must never compete with
+      // the rows the viewer is actually moving through.
+      concurrency: background ? HEALTH_SWEEP_CONCURRENCY : undefined,
       shouldStop: () => !this.isCurrentMount(token),
       onResult: ({ channel, state }) => {
         if (state === CHANNEL_DEAD) {

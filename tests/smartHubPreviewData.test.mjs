@@ -258,3 +258,36 @@ test("extracts direct and Samsung-wrapped PAYLOAD actions", () => {
   assert.deepEqual(extractSmartHubPreviewAction(direct), action);
   assert.deepEqual(extractSmartHubPreviewAction(wrapped), action);
 });
+
+test("the resume bar is fed by position and duration, not just synced percentages", () => {
+  // Locally stored progress has no progressPercent; only the Trakt path does.
+  // Without deriving it, the bar was drawn on synced entries only.
+  const payload = buildSmartHubPreviewPayload({
+    continueWatching: [
+      {
+        contentId: "tt-local",
+        contentType: "movie",
+        title: "Local only",
+        positionMs: 30 * 60000,
+        durationMs: 120 * 60000,
+        background: "https://image.tmdb.org/t/p/w1280/local.jpg"
+      }
+    ]
+  });
+  assert.equal(payload.sections[0].tiles[0].resume_progress_percent, 25);
+});
+
+test("an entry with no duration yields no percentage rather than a wrong one", () => {
+  const payload = buildSmartHubPreviewPayload({
+    continueWatching: [
+      {
+        contentId: "tt-x",
+        contentType: "movie",
+        title: "No duration",
+        positionMs: 30 * 60000,
+        background: "https://image.tmdb.org/t/p/w1280/x.jpg"
+      }
+    ]
+  });
+  assert.equal(payload.sections[0].tiles[0].resume_progress_percent, null);
+});
