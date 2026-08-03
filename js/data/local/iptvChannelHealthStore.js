@@ -21,11 +21,44 @@ export const DEAD_CHANNEL_TTL_MS = 24 * 60 * 60 * 1000;
 // Oldest entries are dropped first; they are also the ones most likely stale.
 export const MAX_TRACKED_CHANNELS = 4000;
 
+// A probe that times out is "unknown", not dead, because it is also what a
+// congested network looks like. But a channel that has never once answered is
+// dead as far as the viewer is concerned, so misses are counted and a channel
+// that reaches this many is treated as dead.
+export const UNKNOWN_STRIKES_BEFORE_DEAD = 3;
+
 function readRaw() {
   const stored = LocalStore.get(KEY, null);
-  return stored && typeof stored === "object" && stored.dead && typeof stored.dead === "object"
-    ? stored
-    : { dead: {} };
+  if (!stored || typeof stored !== "object") {
+    return { dead: {}, strikes: {} };
+  }
+  return {
+    dead: stored.dead && typeof stored.dead === "object" ? stored.dead : {},
+    strikes: stored.strikes && typeof stored.strikes === "object" ? stored.strikes : {}
+  };
+}
+
+/**
+ * Records a channel that could not be reached.
+ *
+ * @returns {boolean} true once it has missed often enough to count as dead.
+ */
+export function recordChannelMiss(channelId = "", nowMs = Date.now()) {
+  const id = String(channelId || "").trim();
+  if (!id) {
+    return false;
+  }
+  const store = readRaw();
+  const strikes = Number(store.strikes[id] || 0) + 1;
+  if (strikes >= UNKNOWN_STRIKES_BEFORE_DEAD) {
+    delete store.strikes[id];
+    store.dead[id] = nowMs;
+    LocalStore.set(KEY, store);
+    return true;
+  }
+  store.strikes[id] = strikes;
+  LocalStore.set(KEY, store);
+  return false;
 }
 
 /**
@@ -51,7 +84,8 @@ export function markChannelsDead(channelIds = [], nowMs = Date.now()) {
   if (!ids.length) {
     return;
   }
-  const { dead } = readRaw();
+  const store = readRaw();
+  const { dead } = store;
   Object.keys(dead).forEach((id) => {
     if (nowMs - Number(dead[id] || 0) > DEAD_CHANNEL_TTL_MS) {
       delete dead[id];
@@ -59,6 +93,7 @@ export function markChannelsDead(channelIds = [], nowMs = Date.now()) {
   });
   ids.forEach((id) => {
     dead[id] = nowMs;
+    delete store.strikes[id];
   });
 
   const entries = Object.entries(dead);
@@ -68,7 +103,7 @@ export function markChannelsDead(channelIds = [], nowMs = Date.now()) {
       .slice(0, entries.length - MAX_TRACKED_CHANNELS)
       .forEach(([id]) => delete dead[id]);
   }
-  LocalStore.set(KEY, { dead });
+  LocalStore.set(KEY, store);
 }
 
 /** Clears a channel's dead record, e.g. after it played successfully. */
@@ -77,10 +112,11 @@ export function markChannelAlive(channelId = "") {
   if (!id) {
     return;
   }
-  const { dead } = readRaw();
-  if (id in dead) {
-    delete dead[id];
-    LocalStore.set(KEY, { dead });
+  const store = readRaw();
+  if (id in store.dead || id in store.strikes) {
+    delete store.dead[id];
+    delete store.strikes[id];
+    LocalStore.set(KEY, store);
   }
 }
 

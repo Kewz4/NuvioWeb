@@ -1,5 +1,6 @@
 ﻿import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
+import { localizeCountryList, localizeLanguage, localizeMetaStatus } from "./metaLabels.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
 import { watchProgressRepository } from "../../../data/repository/watchProgressRepository.js";
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
@@ -3063,16 +3064,23 @@ export const MetaDetailsScreen = {
       formatRuntimeMinutes(
         meta?.runtimeMinutes || resolveEpisodeRuntimeForSeason(this.episodes, this.selectedSeason)
       );
-    const countryText = normalizeCountryLabel(
-      Array.isArray(meta?.country) ? meta.country.join(", ") : meta?.country || ""
+    // Status, country and language arrive from the provider in English, or as
+    // ISO codes. Rendered raw they left "RETURNING SERIES" and "US" sitting
+    // next to fully translated chrome.
+    const locale = I18n.getLocale();
+    const countryText = localizeCountryList(
+      normalizeCountryLabel(
+        Array.isArray(meta?.country) ? meta.country.join(", ") : meta?.country || ""
+      ),
+      locale
     );
-    const languageText = String(meta?.language || "")
-      .trim()
-      .toUpperCase();
+    const languageText = localizeLanguage(meta?.language || "", locale).toUpperCase();
     const ageRating = String(meta?.ageRating || "").trim();
-    const status = String(meta?.status || "")
-      .trim()
-      .toUpperCase();
+    const status = localizeMetaStatus(
+      meta?.status,
+      String(meta?.type || this.contentType || "series"),
+      (key, params, options) => I18n.t(key, params, options)
+    ).toUpperCase();
     const primaryParts = [
       genresText ? `<span>${escapeHtml(genresText)}</span>` : "",
       yearText ? `<span>${escapeHtml(yearText)}</span>` : "",

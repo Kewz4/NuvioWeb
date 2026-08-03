@@ -16,7 +16,8 @@ import { IptvSettingsStore } from "../../../data/local/iptvSettingsStore.js";
 import {
   getDeadChannelIds,
   markChannelAlive,
-  markChannelsDead
+  markChannelsDead,
+  recordChannelMiss
 } from "../../../data/local/iptvChannelHealthStore.js";
 import {
   loadIptvSnapshot,
@@ -25,7 +26,7 @@ import {
 } from "../../../data/repository/iptvRepository.js";
 import { programmeProgress } from "../../../core/iptv/epgIndex.js";
 import { categoryLabelKey } from "../../../core/iptv/channelCategories.js";
-import { CHANNEL_DEAD, probeChannels } from "../../../core/iptv/channelHealth.js";
+import { CHANNEL_ALIVE, CHANNEL_DEAD, probeChannels } from "../../../core/iptv/channelHealth.js";
 import { iptvRequestHeaders } from "../../../core/iptv/xtreamClient.js";
 
 const FAVORITES_GROUP_KEY = "__favorites__";
@@ -282,6 +283,17 @@ export const IptvScreen = {
       shouldStop: () => !this.isCurrentMount(token),
       onResult: ({ channel, state }) => {
         if (state === CHANNEL_DEAD) {
+          dead.push(channel.id);
+          return;
+        }
+        if (state === CHANNEL_ALIVE) {
+          // Answering clears any strikes the channel had accumulated.
+          markChannelAlive(channel.id);
+          return;
+        }
+        // Unknown: a timeout is also what congestion looks like, so it takes a
+        // few consecutive misses before a channel is written off.
+        if (recordChannelMiss(channel.id)) {
           dead.push(channel.id);
         }
       }

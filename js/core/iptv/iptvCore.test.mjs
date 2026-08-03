@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  channelCountryCode,
   extinfTitle,
+  filterGeoBlockedChannels,
   groupChannels,
+  isGeoBlockedChannel,
   inferQualityLabel,
   isDividerChannelName,
   filterChannelsByMinQuality,
@@ -393,4 +396,37 @@ test("extinfTitle returns the text after the attribute list", () => {
   assert.equal(extinfTitle('#EXTINF:-1 tvg-id="a",Name'), "Name");
   assert.equal(extinfTitle("#EXTINF:-1,Name"), "Name");
   assert.equal(extinfTitle("#EXTINF:-1 no-comma-here"), "");
+});
+
+/* Region locking ---------------------------------------------------------- */
+
+test("a region-locked channel is kept only for the household's own country", () => {
+  // Geo-blocked is not dead — it answers a probe fine — it just refuses to play
+  // from outside its country, which from the sofa looks like a broken channel.
+  const channels = [
+    { id: "sv", name: "Tigo Sports TV El Salvador (720p) [Geo-blocked]", tvgId: "TigoSV.sv@SD" },
+    { id: "es", name: "Movistar Plus (1080p) [Geo-blocked]", tvgId: "Movistar.es" },
+    { id: "mx", name: "Canal 5 (1080p)", tvgId: "Canal5.mx" }
+  ];
+  assert.deepEqual(
+    filterGeoBlockedChannels(channels, "SV").map((c) => c.id),
+    ["sv", "mx"]
+  );
+  // An empty home country disables the filter rather than hiding everything.
+  assert.equal(filterGeoBlockedChannels(channels, "").length, 3);
+});
+
+test("the geo-blocked annotation is recognised however it is decorated", () => {
+  assert.equal(isGeoBlockedChannel({ name: "A [Geo-blocked]" }), true);
+  assert.equal(isGeoBlockedChannel({ name: "B [_Geo-blocked_]" }), true);
+  assert.equal(isGeoBlockedChannel({ name: "C [Geo blocked]" }), true);
+  assert.equal(isGeoBlockedChannel({ name: "D (1080p)" }), false);
+});
+
+test("country falls back to the tvg-id suffix, which is where iptv-org puts it", () => {
+  assert.equal(channelCountryCode({ tvgId: "TigoSportsSV.sv@SD" }), "sv");
+  assert.equal(channelCountryCode({ country: "MX" }), "mx");
+  // A descriptive country name is not a code and must not be mistaken for one.
+  assert.equal(channelCountryCode({ country: "El Salvador", tvgId: "X.sv" }), "sv");
+  assert.equal(channelCountryCode({}), "");
 });

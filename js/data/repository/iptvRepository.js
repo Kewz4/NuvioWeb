@@ -6,6 +6,7 @@
 
 import {
   filterChannelsByMinQuality,
+  filterGeoBlockedChannels,
   groupChannels,
   orderGroupNames,
   parseM3u
@@ -267,7 +268,11 @@ export async function loadIptvSnapshot(settings = {}, deps = {}) {
   // Deduplicate before filtering: the shipped sources overlap heavily, and the
   // best copy of a channel is often the one a later playlist carries.
   const { channels: uniqueChannels } = dedupeChannels(channelSets.flat());
-  const qualityFiltered = filterChannelsByMinQuality(uniqueChannels, settings.minQuality);
+  // Region-locked channels from elsewhere are indistinguishable from broken
+  // ones once they are on screen, so they never reach the list. The
+  // household's own country is exempt.
+  const watchable = filterGeoBlockedChannels(uniqueChannels, settings.homeCountry);
+  const qualityFiltered = filterChannelsByMinQuality(watchable, settings.minQuality);
   // Channels already proven dead never re-enter the list, so a category the
   // viewer scrolled yesterday does not fill back up with broken rows today.
   const excluded =

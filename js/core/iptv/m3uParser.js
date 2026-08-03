@@ -67,6 +67,58 @@ export function filterChannelsByMinQuality(channels = [], minQuality = "ANY") {
   });
 }
 
+/**
+ * The two-letter country a channel belongs to, lowercase, or "".
+ *
+ * Falls back to the tvg-id's suffix ("TigoSportsSV.sv@SD" -> "sv") because
+ * iptv-org almost never sets tvg-country, but does encode it in the id.
+ */
+export function channelCountryCode(channel = {}) {
+  const declared = String(channel.country || "").trim();
+  if (/^[a-z]{2}$/i.test(declared)) {
+    return declared.toLowerCase();
+  }
+  const suffix = String(channel.tvgId || "")
+    .split("@")[0]
+    .match(/\.([a-z]{2})$/i);
+  return suffix ? suffix[1].toLowerCase() : "";
+}
+
+/**
+ * Whether a playlist marked this channel as region-locked.
+ *
+ * The annotation is decorated inconsistently across playlists — "[Geo-blocked]",
+ * "[_Geo-blocked_]", "[Geo blocked]" — so anything inside the brackets is
+ * tolerated around the words themselves.
+ */
+export function isGeoBlockedChannel(channel = {}) {
+  return /\[[^\]]*geo[-_ ]?blocked[^\]]*\]/i.test(String(channel.name || ""));
+}
+
+/**
+ * Drops region-locked channels that this household cannot actually watch.
+ *
+ * A geo-blocked channel is not dead — it answers a probe perfectly well — it
+ * simply refuses to play from outside its country, which from the sofa looks
+ * identical to a broken channel. Rather than hiding every one of them, the ones
+ * locked to the viewer's own country are kept: those are exactly the local
+ * broadcasters worth having, and they play fine from here.
+ *
+ * @param {Array<object>} channels
+ * @param {string} homeCountry two-letter code; "" disables the filter entirely
+ */
+export function filterGeoBlockedChannels(channels = [], homeCountry = "") {
+  const home = String(homeCountry || "")
+    .trim()
+    .toLowerCase();
+  if (!home) {
+    return channels;
+  }
+  return channels.filter(
+    (channel) => !isGeoBlockedChannel(channel) || channelCountryCode(channel) === home
+  );
+}
+
 function buildChannelId(streamUrl = "", tvgId = "") {
   const id = String(tvgId || "").trim();
   if (id) {

@@ -262,6 +262,8 @@
     <string name="series_status_continuing">Ongoing</string>
     <string name="series_status_current">Current</string>
     <string name="series_status_cancelled">Cancelled</string>
+    <string name="series_status_returning">Returning</string>
+    <string name="movie_status_returning">Returning</string>
     <string name="series_status_released">Released</string>
     <string name="series_status_planned">Planned</string>
     <string name="series_status_rumored">Rumored</string>

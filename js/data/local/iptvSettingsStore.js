@@ -19,6 +19,10 @@ export const IPTV_SETTINGS_DEFAULTS = {
   defaultsSeededVersion: 0,
   lastChannelId: "",
   userAgent: "",
+  // Two-letter country of the household. Region-locked channels from anywhere
+  // else are hidden, since they look identical to broken ones from the sofa.
+  // Empty disables the filter.
+  homeCountry: "SV",
   // Default to 1080p and above: this build targets a 4K set and lower-quality
   // public feeds look poor on it.
   minQuality: "FHD"
@@ -85,6 +89,10 @@ function normalizeIptvSettings(value = {}) {
     defaultsSeededVersion: DEFAULTS_SEED_VERSION,
     lastChannelId: String(source.lastChannelId || "").trim(),
     userAgent: String(source.userAgent || "").trim(),
+    homeCountry: String(source.homeCountry ?? IPTV_SETTINGS_DEFAULTS.homeCountry ?? "")
+      .trim()
+      .toUpperCase()
+      .slice(0, 2),
     minQuality: MIN_QUALITY_VALUES.includes(String(source.minQuality || "").toUpperCase())
       ? String(source.minQuality).toUpperCase()
       : IPTV_SETTINGS_DEFAULTS.minQuality

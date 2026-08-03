@@ -262,6 +262,8 @@
     <string name="series_status_continuing">En emisión</string>
     <string name="series_status_current">Actual</string>
     <string name="series_status_cancelled">Cancelada</string>
+    <string name="series_status_returning">En emisión</string>
+    <string name="movie_status_returning">En emisión</string>
     <string name="series_status_released">Estrenada</string>
     <string name="series_status_planned">Planeada</string>
     <string name="series_status_rumored">Rumoreada</string>
