@@ -437,6 +437,11 @@ const SUBTITLE_TEXT_COLORS = ["#FFFFFF", "#D9D9D9", "#FFD700", "#00E5FF", "#FF5C
 const SUBTITLE_OUTLINE_COLORS = ["#000000", "#FFFFFF", "#00E5FF", "#FF5C5C"];
 const SUBTITLE_DELAY_MIN_MS = -60000;
 const SUBTITLE_DELAY_MAX_MS = 60000;
+// Generated tracks inherit the source file's timings, and the sources this
+// build translates from run consistently ahead of the streams it plays against.
+// Measured at eight seconds on this household's content; the viewer can still
+// adjust it from the subtitle menu like any other delay.
+const AI_SUBTITLE_DEFAULT_DELAY_MS = 8000;
 const SUBTITLE_DELAY_STEP_MS = 100;
 const SUBTITLE_FONT_STEP = 10;
 const SUBTITLE_VERTICAL_OFFSET_STEP = SUBTITLE_VERTICAL_OFFSET_PLAYER_STEP;
@@ -17103,6 +17108,19 @@ export const PlayerScreen = {
     }
     this.invalidateTrackDialogCaches?.();
     this.applySubtitleEntry({ subtitleIndex: index });
+
+    // The generated track is what the viewer asked for, so it is selected and
+    // the dialog gets out of the way — nobody wants to navigate a three-level
+    // subtitle menu to reach the thing they just waited minutes for.
+    this.selectedAddonSubtitleId = entry.id;
+    this.subtitleDelayMs = clamp(
+      AI_SUBTITLE_DEFAULT_DELAY_MS,
+      SUBTITLE_DELAY_MIN_MS,
+      SUBTITLE_DELAY_MAX_MS
+    );
+    this.applySubtitlePresentationSettings?.({ refreshTrackRendering: true });
+    this.schedulePersistPlayerPresentationSettings?.();
+    this.closeSubtitleDialog?.();
   },
 
   applyAspectMode({ showToast = false } = {}) {

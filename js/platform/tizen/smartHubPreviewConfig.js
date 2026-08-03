@@ -28,6 +28,7 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
       badgeIcon: "★",
       badgeLabel: "Para ti",
       reason: "Porque viste",
+      badgeKey: "paraTi",
       type: "movie",
       catalogId: "recs_because_movies",
       limit: 2
@@ -38,6 +39,7 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
       badgeIcon: "★",
       badgeLabel: "Para ti",
       reason: "Porque viste",
+      badgeKey: "paraTi",
       type: "series",
       catalogId: "recs_because_series",
       limit: 2
@@ -50,6 +52,7 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
       badgeLabel: "Netflix",
       reason: "Top 10 de Netflix",
       showRank: true,
+      badgeKey: "top10",
       type: "movie",
       catalogId: "snoak_netflix_top10_movies",
       limit: 2
@@ -60,6 +63,7 @@ export const SMART_HUB_PREVIEW_CONFIG = Object.freeze({
       badgeLabel: "Netflix",
       reason: "Top 10 de Netflix",
       showRank: true,
+      badgeKey: "top10",
       type: "series",
       catalogId: "snoak_netflix_top10_series",
       limit: 2

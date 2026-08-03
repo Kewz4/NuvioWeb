@@ -196,6 +196,9 @@ function buildContinueWatchingTile(item = {}, position = 0) {
       resumeEpisode: numberOrNull(item.episode ?? item.episodeNumber)
     }),
     is_playable: true,
+    // Consumed by the artwork compositor and stripped before the payload is
+    // sent: Samsung's tile schema has no field for it.
+    resume_progress_percent: progressPercent,
     position
   };
 }
@@ -291,6 +294,7 @@ export function buildSmartHubPreviewPayload({
     sections.push({
       title: continueSectionTitle,
       title_display_mode: "AlwaysOn",
+      badgeKey: "continueWatching",
       position: 0,
       tiles: continueTiles
     });
@@ -318,6 +322,7 @@ export function buildSmartHubPreviewPayload({
       sections.push({
         title: sectionTitle,
         title_display_mode: "AlwaysOn",
+        badgeKey: firstNonEmpty(section.badgeKey),
         position: sectionIndex + 1,
         tiles
       });

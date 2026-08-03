@@ -57,6 +57,8 @@
         ? "urn:ietf:wg:oauth:2.0:oob"
         : existing.TRAKT_REDIRECT_URI,
     SUBTITLE_AI_GROQ_KEYS:
-      typeof existing.SUBTITLE_AI_GROQ_KEYS === "undefined" ? "" : existing.SUBTITLE_AI_GROQ_KEYS
+      typeof existing.SUBTITLE_AI_GROQ_KEYS === "undefined" ? "" : existing.SUBTITLE_AI_GROQ_KEYS,
+    UPLOADCARE_PUBLIC_KEY:
+      typeof existing.UPLOADCARE_PUBLIC_KEY === "undefined" ? "" : existing.UPLOADCARE_PUBLIC_KEY
   };
 })();

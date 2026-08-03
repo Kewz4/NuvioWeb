@@ -21,7 +21,8 @@ export const ENV_PROPERTY_KEYS = [
   "TRAKT_CLIENT_SECRET",
   "TRAKT_API_URL",
   "TRAKT_REDIRECT_URI",
-  "SUBTITLE_AI_GROQ_KEYS"
+  "SUBTITLE_AI_GROQ_KEYS",
+  "UPLOADCARE_PUBLIC_KEY"
 ];
 
 const DEFAULT_ENV_VALUES = {
@@ -47,7 +48,10 @@ const DEFAULT_ENV_VALUES = {
   // public remote is revoked by secret scanning within hours, which would break
   // subtitle generation for the household with no visible cause. Set it in the
   // gitignored local.properties.
-  SUBTITLE_AI_GROQ_KEYS: ""
+  SUBTITLE_AI_GROQ_KEYS: "",
+  // Public by design — it only authorises uploads, never reads or deletes — but
+  // still supplied per build so a fork does not inherit this project's CDN.
+  UPLOADCARE_PUBLIC_KEY: ""
 };
 
 async function pathExists(filePath) {

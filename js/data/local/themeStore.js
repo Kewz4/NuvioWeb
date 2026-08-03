@@ -7,7 +7,11 @@ const DEFAULT_THEME = {
   themeName: "WHITE",
   accentColor: "#ffffff",
   fontFamily: "INTER",
-  language: null,
+  // This fork is built for a Spanish-speaking household, so it starts in
+  // Spanish rather than following the TV's system locale — which on this set is
+  // English, and left every new profile reading English until someone found the
+  // language setting. Still changeable in Settings like any other preference.
+  language: "es-419",
   amoledMode: false,
   amoledSurfacesMode: false
 };

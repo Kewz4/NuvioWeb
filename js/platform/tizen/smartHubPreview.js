@@ -9,6 +9,12 @@ import {
   buildSmartHubPreviewPayload,
   extractSmartHubPreviewAction
 } from "./smartHubPreviewData.js";
+import {
+  SMART_HUB_CARD_BADGES,
+  buildCardArtworkUrl,
+  ingestCardArtwork
+} from "./smartHubCardArtwork.js";
+import { getCachedArtworkUuid, setCachedArtworkUuid } from "./smartHubCardArtworkCache.js";
 
 const PREVIEW_OPERATION = "http://tizen.org/appcontrol/operation/pick";
 const WEB_SERVICE_FEATURE = "http://tizen.org/feature/web.service";
@@ -202,7 +208,7 @@ async function buildPreviewData() {
     console.warn("[SmartHubPreview] Xperience catalogs load failed", error);
     return [];
   });
-  return buildSmartHubPreviewPayload({
+  const payload = buildSmartHubPreviewPayload({
     continueWatching,
     continueWatchingLimit: SMART_HUB_PREVIEW_CONFIG.continueWatchingLimit,
     catalogSections,
@@ -213,6 +219,101 @@ async function buildPreviewData() {
       baseUrl: addon.baseUrl || manifestBaseUrl()
     }
   });
+  return applyCardArtwork(payload);
+}
+
+/** Which overlay a section's tiles get, or null to leave the artwork plain. */
+function badgeForSection(section = {}) {
+  const key = String(section.badgeKey || "");
+  return SMART_HUB_CARD_BADGES[key] || null;
+}
+
+// Compositing is a nicety; the preview is the point. A cold cache with forty
+// tiles would otherwise serialise forty ingests behind the refresh, so the whole
+// pass runs against a deadline and a few at a time. Whatever is not ready by
+// then keeps its plain poster and is picked up by the next refresh, since every
+// success is cached.
+const CARD_ARTWORK_DEADLINE_MS = 20000;
+const CARD_ARTWORK_CONCURRENCY = 4;
+
+/**
+ * Swaps each tile's plain poster for a composited card.
+ *
+ * Best effort throughout: a tile whose poster cannot be ingested in time keeps
+ * the poster it already had. A preview with plain artwork is still a working
+ * preview, so nothing here is allowed to fail or delay the refresh.
+ */
+async function applyCardArtwork(payload) {
+  const publicKey = String(globalThis.__NUVIO_ENV__?.UPLOADCARE_PUBLIC_KEY || "").trim();
+  if (!publicKey || !payload?.sections?.length) {
+    return payload;
+  }
+
+  // Collection tiles already use artwork we designed; only media tiles, whose
+  // posters arrive from a metadata provider, need a reason drawn onto them.
+  const jobs = [];
+  payload.sections.forEach((section) => {
+    const badge = badgeForSection(section);
+    if (!badge) {
+      return;
+    }
+    section.tiles.forEach((tile) => {
+      if (String(tile.image_url || "")) {
+        jobs.push({ tile, badge });
+      }
+    });
+  });
+
+  const compose = ({ tile, badge }, uuid) => {
+    const composed = buildCardArtworkUrl({
+      artworkUuid: uuid,
+      badge,
+      progressPercent: tile.resume_progress_percent ?? null
+    });
+    if (composed) {
+      tile.image_url = composed;
+      // Composited cards are always 16:9, whatever the source poster was.
+      tile.image_ratio = "16by9";
+    }
+  };
+
+  // Anything already ingested is free, so apply those before spending time.
+  const pending = [];
+  jobs.forEach((job) => {
+    const cached = getCachedArtworkUuid(job.tile.image_url);
+    if (cached) {
+      compose(job, cached);
+    } else {
+      pending.push(job);
+    }
+  });
+
+  const deadline = Date.now() + CARD_ARTWORK_DEADLINE_MS;
+  let next = 0;
+  const worker = async () => {
+    while (next < pending.length && Date.now() < deadline) {
+      const job = pending[next];
+      next += 1;
+      const source = String(job.tile.image_url || "");
+      const uuid = await ingestCardArtwork(source, { publicKey });
+      if (uuid) {
+        setCachedArtworkUuid(source, uuid);
+        compose(job, uuid);
+      }
+    }
+  };
+  if (pending.length) {
+    await Promise.all(
+      Array.from({ length: Math.min(CARD_ARTWORK_CONCURRENCY, pending.length) }, () => worker())
+    );
+  }
+
+  // Samsung's tile schema has no field for this; it existed only for the
+  // compositor, so it must not reach the preview service.
+  payload.sections.forEach((section) =>
+    section.tiles.forEach((tile) => delete tile.resume_progress_percent)
+  );
+  return payload;
 }
 
 async function launchPreviewService(previewData) {

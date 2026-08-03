@@ -1,5 +1,3 @@
-/* global __NUVIO_APP_VERSION__ */
-
 import "./core/diagnostics/consoleDebugBuffer.js";
 import { detailWatchedEnrichmentService } from "./data/repository/detailWatchedEnrichmentService.js";
 import { Router } from "./ui/navigation/router.js";
@@ -19,8 +17,6 @@ import { Platform } from "./platform/index.js";
 import { SmartHubPreview } from "./platform/tizen/smartHubPreview.js";
 import { LocalStore } from "./core/storage/localStore.js";
 import { I18n } from "./i18n/index.js";
-import { getLatestAppUpdate } from "./core/update/appUpdateService.js";
-import { showAppUpdatePrompt } from "./ui/components/appUpdatePrompt.js";
 
 (function applyLegacyPatches() {
   const originalGetElementById = document.getElementById;
@@ -38,9 +34,6 @@ const GUEST_QR_BYPASS_KEY = "skipAuthQrGate";
 const SIGNED_OUT_ALLOWED_ROUTES = new Set(["trakt"]);
 let hasSelectedProfileThisSession = false;
 let appShellRendered = false;
-let updateCheckStarted = false;
-
-const APP_VERSION = typeof __NUVIO_APP_VERSION__ !== "undefined" ? __NUVIO_APP_VERSION__ : "0.0.0";
 
 function markBootStage(stage) {
   const guard = globalThis.NuvioBootGuard;
@@ -49,33 +42,11 @@ function markBootStage(stage) {
   }
 }
 
-async function waitForInitialRoute(timeoutMs = 15000) {
-  const startedAt = Date.now();
-  while (!Router.getCurrent() && Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return Boolean(Router.getCurrent());
-}
-
-async function checkForAppUpdateOnStartup() {
-  if (updateCheckStarted) {
-    return;
-  }
-  updateCheckStarted = true;
-
-  try {
-    const update = await getLatestAppUpdate({ currentVersion: APP_VERSION });
-    if (!update) {
-      return;
-    }
-    if (!(await waitForInitialRoute())) {
-      return;
-    }
-    showAppUpdatePrompt(update);
-  } catch (error) {
-    console.warn("App update check failed", error);
-  }
-}
+// The update check and its prompt are deliberately absent. This is a maintained
+// fork: upstream releases do not carry the AI subtitles, the Live TV tab or the
+// Spanish defaults this build exists for, so offering one would invite the
+// household to replace a working install with one missing every feature they
+// use. Updates land here by rebuilding and reinstalling the WGT.
 
 function isSignedOutRouteAllowed() {
   return SIGNED_OUT_ALLOWED_ROUTES.has(Router.getCurrent());
@@ -394,7 +365,6 @@ async function bootstrapApp() {
   ThemeManager.apply();
   I18n.apply();
   warmStreamingLibs({ delayMs: 1400 });
-  void checkForAppUpdateOnStartup();
 
   markBootStage("Restoring session");
   AuthManager.subscribe((state) => {
