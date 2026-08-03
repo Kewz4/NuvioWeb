@@ -8,6 +8,9 @@ import { HomeCatalogStore } from "../../../data/local/homeCatalogStore.js";
 import { ThemeStore } from "../../../data/local/themeStore.js";
 import { ThemeManager } from "../../theme/themeManager.js";
 import { PlayerSettingsStore } from "../../../data/local/playerSettingsStore.js";
+import { IptvSettingsStore, MAX_IPTV_PLAYLISTS } from "../../../data/local/iptvSettingsStore.js";
+import { clearIptvCaches } from "../../../data/repository/iptvRepository.js";
+import { isXtreamPlaylistUrl } from "../../../core/iptv/xtreamClient.js";
 import {
   SUBTITLE_VERTICAL_OFFSET_DEFAULT,
   SUBTITLE_VERTICAL_OFFSET_MAX,
@@ -393,6 +396,48 @@ function formatReuseCacheDuration(hoursValue) {
 // rail (playerScreen.js): same colour palettes, same size/offset ranges so the
 // settings screen and the player edit the exact same values. Mirrors the Android
 // TV app, which exposes these under Settings > Playback > Subtitles.
+const IPTV_MIN_QUALITY_OPTIONS = [
+  { id: "ANY", labelKey: "iptv_quality_any", label: "All qualities" },
+  { id: "HD", label: "720p and above" },
+  { id: "FHD", label: "1080p and above" },
+  { id: "UHD", label: "4K only" }
+];
+
+// AI subtitle options. The provider list mirrors core/player/subtitleAiClient.js.
+const SUBTITLE_AI_PROVIDER_OPTIONS = [
+  { id: "gemini", labelKey: "subtitle_ai_provider_gemini", label: "Google Gemini" },
+  { id: "groq", labelKey: "subtitle_ai_provider_groq", label: "Groq" }
+];
+
+// Kept short on purpose: these are the languages worth translating INTO for
+// this build. es-419 is the default because it is what this household needs.
+const SUBTITLE_AI_TARGET_LANGUAGE_OPTIONS = [
+  { id: "es-419", labelKey: "subtitle_language_es_419", label: "Spanish (Latin America)" },
+  { id: "es", label: "Spanish (Spain)" },
+  { id: "pt-br", label: "Portuguese (Brazil)" },
+  { id: "en", label: "English" },
+  { id: "fr", label: "French" },
+  { id: "it", label: "Italian" },
+  { id: "de", label: "German" }
+];
+
+function subtitleAiProviderLabel(provider) {
+  const normalized = String(provider || "gemini").toLowerCase();
+  const option =
+    SUBTITLE_AI_PROVIDER_OPTIONS.find((item) => item.id === normalized) ||
+    SUBTITLE_AI_PROVIDER_OPTIONS[0];
+  return t(option.labelKey, {}, option.label);
+}
+
+/** The API key belonging to the currently selected provider. */
+function subtitleAiKeyFor(playerSettings = {}) {
+  return String(
+    playerSettings.subtitleAiProvider === "groq"
+      ? playerSettings.subtitleAiGroqKey
+      : playerSettings.subtitleAiGeminiKey || ""
+  ).trim();
+}
+
 const SUBTITLE_SIZE_OPTIONS = [
   { id: 50, label: "50%" },
   { id: 60, label: "60%" },
@@ -654,6 +699,13 @@ const SECTION_META = [
     id: "playback",
     labelKey: "settings.sections.playback.label",
     subtitleKey: "settings.sections.playback.subtitle"
+  },
+  {
+    id: "iptv",
+    labelKey: "iptv_settings_title",
+    label: "Live TV",
+    subtitleKey: "iptv_settings_subtitle",
+    subtitle: "Playlists, Xtream logins and programme guide."
   },
   {
     id: "trakt",
@@ -2241,6 +2293,7 @@ export const SettingsScreen = {
       pluginsEnabled: PluginManager.pluginsEnabled,
       theme: ThemeStore.get(),
       player: PlayerSettingsStore.get(),
+      iptv: IptvSettingsStore.get(),
       webOsAudioCompatibility: Platform.isWebOS()
         ? WebOsAudioCompatibilityStore.get({
             legacyForceAll: Boolean(PlayerSettingsStore.get().forceDtsTrueHdAudio)
@@ -5007,6 +5060,187 @@ export const SettingsScreen = {
     `;
   },
 
+  /**
+   * Live TV sources.
+   *
+   * Deliberately one paste-a-URL field rather than a multi-field login form:
+   * an Xtream get.php URL already carries host/username/password, and
+   * parseXtreamInfo detects it, so the same field covers both M3U and Xtream.
+   * That is one remote-typed value instead of three.
+   */
+  renderIptvSection(model) {
+    const iptv = model.iptv || IptvSettingsStore.get();
+
+    this.actionMap.set("iptv:addPlaylist", () => {
+      if (iptv.playlists.length >= MAX_IPTV_PLAYLISTS) {
+        window.alert?.(
+          t(
+            "iptv_playlist_limit",
+            { 1: MAX_IPTV_PLAYLISTS },
+            `You can add up to ${MAX_IPTV_PLAYLISTS} playlists.`
+          )
+        );
+        return;
+      }
+      this.openTextDialog({
+        title: t("iptv_playlist_url", {}, "M3U playlist URL"),
+        value: "",
+        returnFocusKey: "iptv:addPlaylist",
+        onSubmit: (value) => {
+          const url = String(value || "").trim();
+          if (!url) {
+            return false;
+          }
+          let name = "";
+          try {
+            name = new URL(url).hostname;
+          } catch (_) {
+            name = "";
+          }
+          IptvSettingsStore.addPlaylist({
+            id: `pl-${Date.now()}`,
+            name: name || `Playlist ${iptv.playlists.length + 1}`,
+            url
+          });
+          clearIptvCaches();
+          return true;
+        }
+      });
+    });
+
+    iptv.playlists.forEach((playlist) => {
+      this.actionMap.set(`iptv:playlist:${playlist.id}`, () => {
+        this.openOptionDialog({
+          title: playlist.name,
+          options: [
+            {
+              id: "toggle",
+              label: playlist.enabled
+                ? t("iptv_disable_playlist", {}, "Disable playlist")
+                : t("iptv_enable_playlist", {}, "Enable playlist")
+            },
+            { id: "remove", label: t("iptv_remove_playlist", {}, "Remove playlist") }
+          ],
+          selectedId: "toggle",
+          returnFocusKey: `iptv:playlist:${playlist.id}`,
+          onSelect: (option) => {
+            if (option.id === "toggle") {
+              IptvSettingsStore.setPlaylistEnabled(playlist.id, !playlist.enabled);
+            } else if (option.id === "remove") {
+              IptvSettingsStore.removePlaylist(playlist.id);
+            }
+            clearIptvCaches();
+          }
+        });
+      });
+
+      // Its own row rather than an entry inside the dialog above: the option
+      // dialog closes and re-renders asynchronously after onSelect, which
+      // destroys any dialog opened from within it.
+      this.actionMap.set(`iptv:playlistEpg:${playlist.id}`, () => {
+        this.openTextDialog({
+          title: t("iptv_epg_url", {}, "Programme guide URL (XMLTV, optional)"),
+          value: playlist.epgUrl || "",
+          returnFocusKey: `iptv:playlistEpg:${playlist.id}`,
+          onSubmit: (value) => {
+            const current = IptvSettingsStore.get();
+            IptvSettingsStore.set({
+              playlists: current.playlists.map((entry) =>
+                entry.id === playlist.id ? { ...entry, epgUrl: String(value || "").trim() } : entry
+              )
+            });
+            clearIptvCaches();
+            return true;
+          }
+        });
+      });
+    });
+
+    this.actionMap.set("iptv:refresh", () => {
+      clearIptvCaches();
+    });
+
+    this.actionMap.set("iptv:minQuality", () => {
+      this.openOptionDialog({
+        title: t("iptv_min_quality_title", {}, "Minimum channel quality"),
+        options: IPTV_MIN_QUALITY_OPTIONS,
+        selectedId: iptv.minQuality,
+        returnFocusKey: "iptv:minQuality",
+        onSelect: (option) => {
+          IptvSettingsStore.setMinQuality(String(option.id || "ANY"));
+          clearIptvCaches();
+        }
+      });
+    });
+
+    const playlistRows = iptv.playlists.length
+      ? iptv.playlists
+          .map(
+            (playlist) =>
+              this.renderActionRow({
+                focusKey: `iptv:playlist:${playlist.id}`,
+                title: playlist.name,
+                subtitle: playlist.url,
+                value: playlist.enabled
+                  ? isXtreamPlaylistUrl(playlist.url)
+                    ? "Xtream"
+                    : "M3U"
+                  : t("subtitle_off", {}, "Off")
+              }) +
+              this.renderActionRow({
+                focusKey: `iptv:playlistEpg:${playlist.id}`,
+                title: t("iptv_epg_url", {}, "Programme guide URL (XMLTV, optional)"),
+                subtitle: playlist.name,
+                value: playlist.epgUrl
+                  ? t("subtitle_ai_key_set", {}, "Set")
+                  : t("subtitle_ai_key_not_set", {}, "Not set")
+              })
+          )
+          .join("")
+      : `<div class="settings-empty-hint">${escapeHtml(
+          t(
+            "iptv_empty_subtitle",
+            {},
+            "Add an M3U playlist or Xtream login to watch live channels."
+          )
+        )}</div>`;
+
+    return `
+      ${this.renderSectionHeader(SECTION_META.find((item) => item.id === "iptv"))}
+      <div class="settings-group-card settings-group-card-fill">
+        <div class="settings-stack">
+          ${playlistRows}
+          ${this.renderActionRow({
+            focusKey: "iptv:addPlaylist",
+            title: t("iptv_add_playlist", {}, "Add playlist"),
+            subtitle: t(
+              "iptv_playlist_url",
+              {},
+              "Paste an M3U playlist URL or an Xtream get.php link."
+            ),
+            value: `${iptv.playlists.length}/${MAX_IPTV_PLAYLISTS}`
+          })}
+          ${this.renderActionRow({
+            focusKey: "iptv:minQuality",
+            title: t("iptv_min_quality_title", {}, "Minimum channel quality"),
+            subtitle: t(
+              "iptv_min_quality_subtitle",
+              {},
+              "Hide lower-quality channels. Channels with no quality label are always shown."
+            ),
+            value: labelForOptionId(IPTV_MIN_QUALITY_OPTIONS, iptv.minQuality, iptv.minQuality)
+          })}
+          ${this.renderActionRow({
+            focusKey: "iptv:refresh",
+            title: t("iptv_refresh", {}, "Refresh channels"),
+            subtitle: t("iptv_settings_subtitle", {}, "Reload playlists and guide data."),
+            value: ""
+          })}
+        </div>
+      </div>
+    `;
+  },
+
   renderPlaybackSection(model) {
     this.ensureExpandedState("playback");
     const expanded = this.expandedSections.playback;
@@ -5341,6 +5575,54 @@ export const SettingsScreen = {
     this.actionMap.set("playback:subtitleOutline", () => {
       updateSubtitleStyle({
         outlineEnabled: !PlayerSettingsStore.get().subtitleStyle?.outlineEnabled
+      });
+    });
+    this.actionMap.set("playback:subtitleAiProvider", () => {
+      this.openOptionDialog({
+        title: t("subtitle_ai_provider_title", {}, "AI provider"),
+        options: SUBTITLE_AI_PROVIDER_OPTIONS,
+        selectedId: PlayerSettingsStore.get().subtitleAiProvider,
+        returnFocusKey: "playback:subtitleAiProvider",
+        onSelect: (option) => {
+          PlayerSettingsStore.set({ subtitleAiProvider: String(option.id || "gemini") });
+        }
+      });
+    });
+    this.actionMap.set("playback:subtitleAiKey", () => {
+      const settings = PlayerSettingsStore.get();
+      const isGroq = settings.subtitleAiProvider === "groq";
+      const storeKey = isGroq ? "subtitleAiGroqKey" : "subtitleAiGeminiKey";
+      this.openTextDialog({
+        title: isGroq
+          ? t("subtitle_ai_groq_key_title", {}, "Groq API key")
+          : t("subtitle_ai_gemini_key_title", {}, "Gemini API key"),
+        value: settings[storeKey] || "",
+        returnFocusKey: "playback:subtitleAiKey",
+        onSubmit: (value) => {
+          PlayerSettingsStore.set({ [storeKey]: String(value || "").trim() });
+          return true;
+        }
+      });
+    });
+    this.actionMap.set("playback:subtitleAiAutoSync", () => {
+      PlayerSettingsStore.set({
+        subtitleAiAutoSyncEnabled: !PlayerSettingsStore.get().subtitleAiAutoSyncEnabled
+      });
+    });
+    this.actionMap.set("playback:subtitleAiTranslate", () => {
+      PlayerSettingsStore.set({
+        subtitleAiTranslateEnabled: !PlayerSettingsStore.get().subtitleAiTranslateEnabled
+      });
+    });
+    this.actionMap.set("playback:subtitleAiTargetLanguage", () => {
+      this.openOptionDialog({
+        title: t("subtitle_ai_target_language_title", {}, "Translate subtitles into"),
+        options: SUBTITLE_AI_TARGET_LANGUAGE_OPTIONS,
+        selectedId: PlayerSettingsStore.get().subtitleAiTargetLanguage,
+        returnFocusKey: "playback:subtitleAiTargetLanguage",
+        onSelect: (option) => {
+          PlayerSettingsStore.set({ subtitleAiTargetLanguage: String(option.id || "es-419") });
+        }
       });
     });
     this.actionMap.set("playback:subtitleOutlineColor", () => {
@@ -5796,6 +6078,62 @@ export const SettingsScreen = {
           subtitle: t("settings.playback.renderMode.subtitle"),
           value: renderModeLabel(model.player.subtitleRenderMode)
         })}
+        ${this.renderActionRow({
+          focusKey: "playback:subtitleAiProvider",
+          title: t("subtitle_ai_provider_title", {}, "AI provider"),
+          subtitle: t(
+            "subtitle_ai_provider_subtitle",
+            {},
+            "Service used for subtitle sync and translation."
+          ),
+          value: subtitleAiProviderLabel(model.player.subtitleAiProvider)
+        })}
+        ${this.renderActionRow({
+          focusKey: "playback:subtitleAiKey",
+          title:
+            model.player.subtitleAiProvider === "groq"
+              ? t("subtitle_ai_groq_key_title", {}, "Groq API key")
+              : t("subtitle_ai_gemini_key_title", {}, "Gemini API key"),
+          subtitle: t("subtitle_ai_key_subtitle", {}, "Stored on this device only."),
+          // Never render the key itself, only whether one is present.
+          value: subtitleAiKeyFor(model.player)
+            ? t("subtitle_ai_key_set", {}, "Key saved")
+            : t("subtitle_ai_key_not_set", {}, "Not set")
+        })}
+        ${this.renderToggleRow({
+          focusKey: "playback:subtitleAiAutoSync",
+          title: t("subtitle_ai_auto_sync_title", {}, "Automatic subtitle sync"),
+          subtitle: t(
+            "subtitle_ai_auto_sync_subtitle",
+            {},
+            "Offer AI Auto-Sync when an addon subtitle is selected."
+          ),
+          checked: Boolean(model.player.subtitleAiAutoSyncEnabled)
+        })}
+        ${this.renderToggleRow({
+          focusKey: "playback:subtitleAiTranslate",
+          title: t("subtitle_ai_translate_title", {}, "Offer AI translation"),
+          subtitle: t(
+            "subtitle_ai_translate_subtitle",
+            {},
+            "Translate a subtitle track when your language is unavailable."
+          ),
+          checked: Boolean(model.player.subtitleAiTranslateEnabled)
+        })}
+        ${
+          model.player.subtitleAiTranslateEnabled
+            ? this.renderActionRow({
+                focusKey: "playback:subtitleAiTargetLanguage",
+                title: t("subtitle_ai_target_language_title", {}, "Translate subtitles into"),
+                subtitle: t(
+                  "subtitle_ai_target_language_subtitle",
+                  {},
+                  "Language used when translating with AI."
+                ),
+                value: labelForSubtitlePlaybackLanguage(model.player.subtitleAiTargetLanguage)
+              })
+            : ""
+        }
       </div>
     `;
 
@@ -6352,6 +6690,7 @@ export const SettingsScreen = {
     if (section.id === "integration") return this.renderIntegrationSection(model);
     if (section.id === "streams") return this.renderStreamsSection(model);
     if (section.id === "playback") return this.renderPlaybackSection(model);
+    if (section.id === "iptv") return this.renderIptvSection(model);
     if (section.id === "trakt") return this.renderTraktLauncher(model);
     if (section.id === "advanced") return this.renderAdvancedSection(model);
     return this.renderAboutSection(model);

@@ -55,6 +55,8 @@
     TRAKT_REDIRECT_URI:
       typeof existing.TRAKT_REDIRECT_URI === "undefined"
         ? "urn:ietf:wg:oauth:2.0:oob"
-        : existing.TRAKT_REDIRECT_URI
+        : existing.TRAKT_REDIRECT_URI,
+    SUBTITLE_AI_GROQ_KEYS:
+      typeof existing.SUBTITLE_AI_GROQ_KEYS === "undefined" ? "" : existing.SUBTITLE_AI_GROQ_KEYS
   };
 })();

@@ -21332,3 +21332,382 @@ html.legacy-webos .debug-console-log-frame {
 .legacy-webos .stream-route-card.focused {
   border-color: var(--secondary-color);
 }
+
+/* ==========================================================================
+   Live TV (IPTV)
+   Sits on the shared .home-shell / .home-main scaffolding so the absolutely
+   positioned sidebar rail is cleared the same way every other tab clears it.
+   Uses margins rather than flex `gap` and avoids aspect-ratio/backdrop-filter,
+   matching the legacy-feature fallbacks declared on <html>.
+
+   Focus deliberately does NOT rely on --focus-bg alone (#303030), which is
+   nearly invisible against the dark app background from across a room. The
+   highlight combines a bright fill, an accent outline and a scale bump, and
+   the inactive rail dims so it is always obvious which list the remote drives.
+   ========================================================================== */
+
+.iptv-shell {
+  background: var(--bg-color);
+}
+
+.iptv-main {
+  padding: 40px 96px 40px 48px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  overflow: hidden;
+}
+
+.iptv-header {
+  margin-bottom: 20px;
+}
+
+.iptv-title {
+  font-size: 52px;
+  font-weight: 700;
+  color: var(--text-color);
+  margin: 0;
+}
+
+.iptv-note {
+  margin: 8px 0 0;
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.iptv-note.warning {
+  color: var(--error-color);
+}
+
+.iptv-body {
+  display: flex;
+  flex-direction: row;
+  height: calc(100vh - 210px);
+}
+
+/* Rails ------------------------------------------------------------------ */
+
+.iptv-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  transition: opacity 0.15s ease;
+}
+
+/* The rows live in their own scroller so the heading stays pinned while the
+   list moves, and so scrollRowIntoView has a single element to drive. The
+   scrollbar is hidden because a TV has no pointer to grab it with; position in
+   the list is conveyed by the heading count instead. */
+.iptv-rail-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Focus rings and the scale bump would be clipped flush against the edges. */
+  padding: 6px 6px 32px;
+  scrollbar-width: none;
+}
+
+.iptv-rail-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.iptv-hint {
+  margin: 6px 0 0;
+  font-size: 19px;
+  color: var(--text-secondary);
+}
+
+/* The rail the remote is NOT driving recedes, so the active one is obvious. */
+.iptv-rail:not(.zone-active) {
+  opacity: 0.45;
+}
+
+.iptv-rail-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.iptv-rail.zone-active .iptv-rail-heading {
+  color: var(--text-color);
+}
+
+.iptv-rail-count {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.iptv-groups {
+  flex: 0 0 400px;
+  width: 400px;
+  padding-right: 24px;
+  min-height: 0;
+}
+
+.iptv-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 18px 24px;
+  margin-bottom: 10px;
+  border: 3px solid transparent;
+  border-radius: 14px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  font-size: 26px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Selected = the category currently listed. Focused = where the remote is. */
+.iptv-group.selected {
+  border-color: rgba(var(--focus-color-rgb), 0.35);
+}
+
+.iptv-group.focused,
+.iptv-channel.focused,
+.iptv-show-more.focused,
+.iptv-empty-action.focused {
+  background: var(--focus-color);
+  color: #000000;
+  border-color: var(--focus-color);
+  outline: 4px solid rgba(var(--focus-color-rgb), 0.45);
+  outline-offset: 2px;
+  transform: scale(1.02);
+}
+
+.iptv-group-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin-right: 16px;
+}
+
+.iptv-group-count {
+  flex: 0 0 auto;
+  font-size: 21px;
+  color: var(--text-secondary);
+}
+
+.iptv-group.focused .iptv-group-count {
+  color: #000000;
+}
+
+/* Channel list ----------------------------------------------------------- */
+
+.iptv-channels {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 12px 0 32px;
+}
+
+.iptv-channel {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 18px 24px;
+  margin-bottom: 12px;
+  border: 3px solid transparent;
+  border-radius: 16px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  text-align: left;
+  cursor: pointer;
+}
+
+.iptv-channel-logo {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+  height: 76px;
+  margin-right: 26px;
+  border-radius: 10px;
+  background: var(--bg-color);
+  overflow: hidden;
+}
+
+.iptv-channel.focused .iptv-channel-logo {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.iptv-channel-logo img {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.iptv-channel-initial {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.iptv-channel-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.iptv-channel-name {
+  display: block;
+  font-size: 29px;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.iptv-fav-dot {
+  color: #f5c518;
+  margin-right: 8px;
+}
+
+.iptv-channel.focused .iptv-fav-dot {
+  color: #8a6d00;
+}
+
+.iptv-channel-quality {
+  flex: 0 0 auto;
+  margin-left: 22px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--bg-color);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.iptv-channel.focused .iptv-channel-quality {
+  background: rgba(0, 0, 0, 0.18);
+  color: #000000;
+}
+
+/* Now / next guide */
+.iptv-channel-guide {
+  margin-top: 6px;
+  font-size: 21px;
+  color: var(--text-secondary);
+}
+
+.iptv-channel.focused .iptv-channel-guide {
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.iptv-channel-guide.muted {
+  opacity: 0.65;
+}
+
+.iptv-now,
+.iptv-next {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.iptv-guide-label {
+  display: inline-block;
+  min-width: 76px;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+
+.iptv-guide-title {
+  margin-right: 12px;
+}
+
+.iptv-guide-progress {
+  display: inline-block;
+  vertical-align: middle;
+  width: 160px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-color);
+  overflow: hidden;
+}
+
+.iptv-guide-progress i {
+  display: block;
+  height: 100%;
+  background: var(--focus-color);
+}
+
+.iptv-channel.focused .iptv-guide-progress {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.iptv-channel.focused .iptv-guide-progress i {
+  background: #000000;
+}
+
+/* Show more, empty, loading and error states ------------------------------ */
+
+.iptv-show-more {
+  display: block;
+  width: 100%;
+  padding: 20px 26px;
+  margin-bottom: 14px;
+  border: 3px dashed var(--border-color);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 25px;
+  cursor: pointer;
+}
+
+.iptv-empty,
+.iptv-loading,
+.iptv-error,
+.iptv-channels.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  height: 55vh;
+  color: var(--text-secondary);
+  font-size: 26px;
+}
+
+.iptv-empty-title {
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--text-color);
+  margin: 0 0 14px;
+}
+
+.iptv-empty-subtitle {
+  margin: 0 0 32px;
+  max-width: 900px;
+  line-height: 1.5;
+}
+
+.iptv-empty-action {
+  padding: 18px 34px;
+  border: 3px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  font-size: 26px;
+  cursor: pointer;
+}
+
+.settings-empty-hint {
+  padding: 20px 26px;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1.5;
+}

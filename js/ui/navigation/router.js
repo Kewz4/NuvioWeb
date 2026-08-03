@@ -7,6 +7,7 @@ import { SyncCodeScreen } from "../screens/account/syncCodeScreen.js";
 import { ProfileSelectionScreen } from "../../core/profile/profileSelectionScreen.js";
 import { MetaDetailsScreen } from "../screens/detail/metaDetailsScreen.js";
 import { LibraryScreen } from "../screens/library/libraryScreen.js";
+import { IptvScreen } from "../screens/iptv/iptvScreen.js";
 import { SearchScreen } from "../screens/search/searchScreen.js";
 import { DiscoverScreen } from "../screens/search/discoverScreen.js";
 import { SettingsScreen } from "../screens/settings/settingsScreen.js";
@@ -83,6 +84,7 @@ export const Router = {
     profileSelection: ProfileSelectionScreen,
     detail: MetaDetailsScreen,
     library: LibraryScreen,
+    iptv: IptvScreen,
     search: SearchScreen,
     discover: DiscoverScreen,
     settings: SettingsScreen,

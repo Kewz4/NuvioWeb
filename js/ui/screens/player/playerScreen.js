@@ -68,6 +68,19 @@ import {
   parseVttCueLayout
 } from "../../../core/player/subtitleCueLayout.js";
 import {
+  activeSubtitleAiKey,
+  clearAutoSyncSourceCues,
+  generateTargetLanguageSubtitles,
+  hasSubtitleInTargetLanguage,
+  pickTranslationSource,
+  recordAutoSyncSourceCue,
+  runSubtitleAutoSyncForScreen
+} from "./subtitleAiActions.js";
+import {
+  DEFAULT_SUBTITLE_TRANSLATION_LANGUAGE,
+  subtitleTranslationLanguageLabel
+} from "../../../core/player/subtitleAiTranslator.js";
+import {
   SUBTITLE_VERTICAL_OFFSET_DEFAULT,
   SUBTITLE_VERTICAL_OFFSET_PLAYER_STEP,
   formatSubtitleVerticalOffset,
@@ -412,6 +425,9 @@ const LANGUAGE_NAME_ALIASES = {
 };
 const SUBTITLE_LANGUAGE_OFF_KEY = "__off__";
 const SUBTITLE_LANGUAGE_UNKNOWN_KEY = "__unknown__";
+// Synthetic language-rail entry offering to create a track with AI when the
+// stream carries nothing in the viewer's language.
+const SUBTITLE_LANGUAGE_GENERATE_KEY = "__generate_ai__";
 const SUBTITLE_TEXT_COLORS = ["#FFFFFF", "#D9D9D9", "#FFD700", "#00E5FF", "#FF5C5C", "#00FF88"];
 const SUBTITLE_OUTLINE_COLORS = ["#000000", "#FFFFFF", "#00E5FF", "#FF5C5C"];
 const SUBTITLE_DELAY_MIN_MS = -60000;
@@ -2255,6 +2271,10 @@ export const PlayerScreen = {
 
     this.subtitles = [];
     this.embeddedSubtitleTracks = [];
+    // A generation started on the previous title is pinned to its own mount
+    // token and will not touch this one, but the flag itself is shared state
+    // and must not carry over or the new title looks permanently "generating".
+    this.subtitleGenerationRunning = false;
     this.nextEpisodeTransitionMeta = null;
     this.subtitleDialogVisible = false;
     this.subtitleDialogTab = "builtIn";
@@ -8756,13 +8776,10 @@ export const PlayerScreen = {
           }
         );
       }
-      if (this.currentEngineFsStream) {
-        this.renderSourcesPanel();
-      } else if (this.streamCandidates.length > 1) {
-        this.openSourcesPanel();
-      } else {
-        this.renderSourcesPanel();
-      }
+      // Keep source switching user-initiated after an in-playback failure. Opening
+      // the panel here steals focus from the player (notably on webOS) and differs
+      // from Android TV, where fatal playback errors do not open Sources.
+      this.renderSourcesPanel();
 
       console.warn("Playback failed", {
         url: this.activePlaybackUrl,
@@ -10421,6 +10438,9 @@ export const PlayerScreen = {
     this.selectedSubtitleTrackIndex = -1;
     this.selectedEmbeddedSubtitleTrackIndex = -1;
     this.selectedManifestSubtitleTrackId = null;
+    // Reference cues belong to the previous title; never reuse them.
+    clearAutoSyncSourceCues(this);
+    this.autoSyncAttemptedUrls = new Set();
     this.startupSubtitlePreferenceApplied = false;
     this.startupSubtitlePreferenceApplying = false;
     this.startupAudioPreferenceApplied = false;
@@ -12584,6 +12604,14 @@ export const PlayerScreen = {
       return;
     }
     this.htmlSubtitleActiveCueKey = cueKey;
+    // Second capture path for AI auto-sync. Tizen feeds the buffer from
+    // avplaysubtitlechange; every other engine renders through this overlay, so
+    // tap it here while a built-in track is standing in as the timing reference.
+    if (this.autoSyncCapturingReference && activeCues.length) {
+      activeCues.forEach((cue) => {
+        recordAutoSyncSourceCue(this, cue.text, Math.round(Number(cue.start) * 1000));
+      });
+    }
     if (typeof node.replaceChildren === "function") {
       node.replaceChildren();
     } else {
@@ -12691,6 +12719,16 @@ export const PlayerScreen = {
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n");
+    // Feed AI auto-sync its reference lines, but ONLY while a built-in track is
+    // standing in as the reference. Recording during normal playback would
+    // capture the addon subtitle's own cues and yield a meaningless zero offset.
+    if (this.autoSyncCapturingReference) {
+      recordAutoSyncSourceCue(
+        this,
+        rawText,
+        Math.round(Number(PlayerController.getCurrentTimeSeconds?.() || 0) * 1000)
+      );
+    }
     const text = this.parseSubtitleCueText(rawText);
     if (!text) {
       this.renderHtmlSubtitleOverlayCue([]);
@@ -13453,8 +13491,43 @@ export const PlayerScreen = {
           sensitivity: "base"
         });
       });
+
+    // Offer AI generation right where the viewer looks for their language and
+    // does not find it. Placed after "Off" so it reads as the obvious next step.
+    if (this.shouldOfferSubtitleGeneration()) {
+      const targetLanguage =
+        PlayerSettingsStore.get().subtitleAiTargetLanguage || DEFAULT_SUBTITLE_TRANSLATION_LANGUAGE;
+      values.splice(1, 0, {
+        key: SUBTITLE_LANGUAGE_GENERATE_KEY,
+        label: t(
+          "subtitle_generate_language_label",
+          { 1: subtitleTranslationLanguageLabel(targetLanguage) },
+          `Generate ${subtitleTranslationLanguageLabel(targetLanguage)} Subtitles`
+        ),
+        selected: false,
+        count: 0,
+        isGenerateAction: true
+      });
+    }
+
     this.trackDialogCache.subtitleLanguageRail = values;
     return values;
+  },
+
+  /**
+   * Only worth offering when translation is enabled, a key is configured, the
+   * stream has something to translate FROM, and nothing already in the target
+   * language.
+   */
+  shouldOfferSubtitleGeneration() {
+    const settings = PlayerSettingsStore.get();
+    if (!settings.subtitleAiTranslateEnabled || !activeSubtitleAiKey(settings)) {
+      return false;
+    }
+    if (!pickTranslationSource(this)) {
+      return false;
+    }
+    return !hasSubtitleInTargetLanguage(this, settings.subtitleAiTargetLanguage);
   },
 
   syncSubtitleOptionIndexForFocusedLanguage() {
@@ -13466,7 +13539,32 @@ export const PlayerScreen = {
     this.subtitleOptionRailIndex = Math.max(0, selectedIndex >= 0 ? selectedIndex : 0);
   },
 
+  /**
+   * Kicks off AI subtitle generation from the dialog.
+   *
+   * Separate from track selection because it is an action rather than a track:
+   * there is no subtitle entry to apply, and the dialog needs to re-render so
+   * the row can show progress.
+   */
+  startSubtitleGeneration() {
+    if (this.subtitleGenerationRunning) {
+      return;
+    }
+    void generateTargetLanguageSubtitles(this).then(() => {
+      this.invalidateTrackDialogCaches?.();
+      if (this.subtitleDialogVisible) {
+        this.renderSubtitleDialog();
+      }
+    });
+    this.renderSubtitleDialog();
+  },
+
   selectSubtitleOption(option, { focusOptions = true } = {}) {
+    // Action rows carry no entry, so they must be checked before the guard.
+    if (option?.isGenerateAction) {
+      this.startSubtitleGeneration();
+      return true;
+    }
     if (!option?.entry || !option.languageKey || option.languageKey === SUBTITLE_LANGUAGE_OFF_KEY) {
       return false;
     }
@@ -13593,6 +13691,29 @@ export const PlayerScreen = {
 
   getSubtitleOptionsForLanguage(languageKey = this.getSelectedSubtitleLanguageKey()) {
     const normalizedLanguageKey = languageKey || SUBTITLE_LANGUAGE_OFF_KEY;
+    if (normalizedLanguageKey === SUBTITLE_LANGUAGE_GENERATE_KEY) {
+      const targetLanguage =
+        PlayerSettingsStore.get().subtitleAiTargetLanguage || DEFAULT_SUBTITLE_TRANSLATION_LANGUAGE;
+      const languageLabel = subtitleTranslationLanguageLabel(targetLanguage);
+      return [
+        {
+          id: SUBTITLE_LANGUAGE_GENERATE_KEY,
+          languageKey: SUBTITLE_LANGUAGE_GENERATE_KEY,
+          sourceLabel: t("subtitle_generate_chip", {}, "AI"),
+          title: this.subtitleGenerationRunning
+            ? t("subtitle_generate_running", {}, "Generating…")
+            : t("subtitle_generate_action", {}, "Generate now"),
+          meta: t(
+            "subtitle_generate_prompt",
+            { 1: languageLabel },
+            `There is no source of ${languageLabel} subtitles for this stream. Generate them?`
+          ),
+          selected: false,
+          sourceType: "generate",
+          isGenerateAction: true
+        }
+      ];
+    }
     const optionsByLanguage = this.trackDialogCache?.subtitleOptionsByLanguage;
     if (optionsByLanguage?.has(normalizedLanguageKey)) {
       return optionsByLanguage.get(normalizedLanguageKey);
@@ -14982,6 +15103,9 @@ export const PlayerScreen = {
     this.selectedManifestSubtitleTrackId = null;
     this.renderControlButtons();
     this.renderSubtitleDialog();
+    // Picking an addon subtitle is the moment auto-sync is useful, so start it
+    // here rather than making the user find it in the style rail.
+    this.maybeStartAiSubtitleAutoSync(subtitle);
 
     if (this.subtitleSelectionTimer) {
       clearTimeout(this.subtitleSelectionTimer);
@@ -15251,6 +15375,12 @@ export const PlayerScreen = {
       }
       if (this.subtitleFocusedRail === "options") {
         const option = options[this.subtitleOptionRailIndex];
+        // The AI generate row is an action, not a track: it has no `entry`, so
+        // it has to be handled before the entry check that follows.
+        if (option?.isGenerateAction) {
+          this.startSubtitleGeneration();
+          return true;
+        }
         if (option?.entry) {
           this.applySubtitleEntry(option.entry);
         }
@@ -16673,6 +16803,138 @@ export const PlayerScreen = {
     this.aspectToastTimer = setTimeout(() => {
       toast.classList.add("hidden");
     }, 1400);
+  },
+
+  // --- AI subtitles (auto-sync + translation) -------------------------------
+
+  /**
+   * Status line for AI subtitle work. Reuses the aspect toast node; `sticky`
+   * keeps progress messages up while a multi-attempt sync runs.
+   */
+  showSubtitleAiToast(message, { sticky = false } = {}) {
+    const toast = this.uiRefs?.aspectToast;
+    if (!toast || !message) {
+      return;
+    }
+    toast.textContent = String(message);
+    toast.classList.remove("hidden");
+    if (this.aspectToastTimer) {
+      clearTimeout(this.aspectToastTimer);
+      this.aspectToastTimer = null;
+    }
+    if (!sticky) {
+      this.aspectToastTimer = setTimeout(() => {
+        toast.classList.add("hidden");
+      }, 3200);
+    }
+  },
+
+  /**
+   * Starts AI auto-sync for a freshly selected addon subtitle.
+   *
+   * Runs at most once per subtitle URL per playback so re-opening the subtitle
+   * menu does not re-spend API calls, and never on a track we translated
+   * ourselves (its timings already came from the source file).
+   */
+  maybeStartAiSubtitleAutoSync(subtitle) {
+    const settings = PlayerSettingsStore.get();
+    if (!settings.subtitleAiAutoSyncEnabled || !activeSubtitleAiKey(settings)) {
+      return;
+    }
+    if (!subtitle?.url || subtitle.aiTranslated) {
+      return;
+    }
+    if (this.autoSyncRunning) {
+      return;
+    }
+    if (!(this.autoSyncAttemptedUrls instanceof Set)) {
+      this.autoSyncAttemptedUrls = new Set();
+    }
+    if (this.autoSyncAttemptedUrls.has(subtitle.url)) {
+      return;
+    }
+    this.autoSyncAttemptedUrls.add(subtitle.url);
+
+    void runSubtitleAutoSyncForScreen(this, { subtitleUrl: subtitle.url }).then(() => {
+      if (this.subtitleDialogVisible) {
+        this.renderSubtitleDialog();
+      }
+    });
+  },
+
+  /**
+   * Holds playback while a full subtitle track is generated.
+   * @returns {boolean} true when this call is what paused it, so only we resume.
+   */
+  holdPlaybackForSubtitleGeneration() {
+    const video = PlayerController.video;
+    const wasPlaying = Boolean(video && !video.paused);
+    if (wasPlaying) {
+      PlayerController.pause();
+      this.renderControlButtons?.();
+    }
+    return wasPlaying;
+  },
+
+  releasePlaybackAfterSubtitleGeneration() {
+    PlayerController.resume();
+    this.renderControlButtons?.();
+    // Verify rather than assume: resume() can be swallowed while a modal has
+    // focus, which would strand the viewer on a frozen frame after a failed
+    // generation. Re-issue once on the next tick if the video is still paused.
+    setTimeout(() => {
+      const video = PlayerController.video;
+      if (video && video.paused && !this.subtitleGenerationRunning) {
+        try {
+          video.play?.();
+        } catch (_) {
+          PlayerController.resume();
+        }
+        this.renderControlButtons?.();
+      }
+    }, 400);
+  },
+
+  /** URL of the addon subtitle currently selected, or "" when none is. */
+  getActiveAddonSubtitleUrl() {
+    const selectedId = this.selectedAddonSubtitleId;
+    if (!selectedId) {
+      return "";
+    }
+    const match = (this.subtitles || []).find(
+      (subtitle, index) => (subtitle.id || subtitle.url || `subtitle-${index}`) === selectedId
+    );
+    return String(match?.url || "");
+  },
+
+  /**
+   * Registers an AI-translated track alongside the addon subtitles and selects
+   * it, so it flows through the normal selection pipeline.
+   */
+  applyTranslatedSubtitleTrack({ objectUrl, targetLanguage } = {}) {
+    if (!objectUrl || !Array.isArray(this.subtitles)) {
+      return;
+    }
+    const id = `ai-translated:${targetLanguage}`;
+    const existingIndex = this.subtitles.findIndex((subtitle) => subtitle.id === id);
+    // `lang` must be a language CODE, not a display label: the dialog groups by
+    // it and the <track> uses it as srclang. Passing a human-readable name here
+    // filed the generated track under "Unknown" instead of Spanish.
+    const entry = {
+      id,
+      url: objectUrl,
+      lang: targetLanguage,
+      addonName: t("subtitle_generate_chip", {}, "AI"),
+      aiTranslated: true
+    };
+    const index = existingIndex >= 0 ? existingIndex : this.subtitles.length;
+    if (existingIndex >= 0) {
+      this.subtitles[existingIndex] = entry;
+    } else {
+      this.subtitles.push(entry);
+    }
+    this.invalidateTrackDialogCaches?.();
+    this.applySubtitleEntry({ subtitleIndex: index });
   },
 
   applyAspectMode({ showToast = false } = {}) {

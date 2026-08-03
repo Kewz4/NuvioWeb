@@ -2,7 +2,7 @@
   "name": "nuvio-tv-web",
   "private": true,
   "type": "module",
-  "version": "0.3.28",
+  "version": "0.3.29",
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "prepare": "husky || true",
@@ -22,7 +22,10 @@
     "sync": "node ./scripts/sync-wrapper.mjs",
     "sync:tizen": "node ./scripts/sync-wrapper.mjs --tizen",
     "sync:webos": "node ./scripts/sync-wrapper.mjs --webos",
-    "sync:tizenbrew": "node ./scripts/sync-tizenbrew.mjs"
+    "sync:tizenbrew": "node ./scripts/sync-tizenbrew.mjs",
+    "electron": "electron electron/main.cjs",
+    "electron:rc": "electron --remote-debugging-port=9222 electron/main.cjs",
+    "rc": "node scripts/rc.mjs"
   },
   "devDependencies": {
     "@csstools/postcss-global-data": "^4.0.0",
@@ -32,11 +35,13 @@
     "core-js": "3.49.0",
     "core-js-compat": "3.49.0",
     "cssnano": "^7.1.4",
+    "electron": "^43.2.0",
     "esbuild": "^0.27.3",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.5.0",
     "husky": "^9.1.7",
+    "playwright": "^1.62.1",
     "postcss": "^8.5.9",
     "prettier": "^3.8.4"
   },

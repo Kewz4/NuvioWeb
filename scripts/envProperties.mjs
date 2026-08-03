@@ -20,7 +20,8 @@ export const ENV_PROPERTY_KEYS = [
   "TRAKT_CLIENT_ID",
   "TRAKT_CLIENT_SECRET",
   "TRAKT_API_URL",
-  "TRAKT_REDIRECT_URI"
+  "TRAKT_REDIRECT_URI",
+  "SUBTITLE_AI_GROQ_KEYS"
 ];
 
 const DEFAULT_ENV_VALUES = {
@@ -41,7 +42,12 @@ const DEFAULT_ENV_VALUES = {
   TRAKT_CLIENT_ID: "",
   TRAKT_CLIENT_SECRET: "",
   TRAKT_API_URL: "https://api.trakt.tv",
-  TRAKT_REDIRECT_URI: "urn:ietf:wg:oauth:2.0:oob"
+  TRAKT_REDIRECT_URI: "urn:ietf:wg:oauth:2.0:oob",
+  // Comma-separated. Empty in the repo on purpose: a live key committed to a
+  // public remote is revoked by secret scanning within hours, which would break
+  // subtitle generation for the household with no visible cause. Set it in the
+  // gitignored local.properties.
+  SUBTITLE_AI_GROQ_KEYS: ""
 };
 
 async function pathExists(filePath) {

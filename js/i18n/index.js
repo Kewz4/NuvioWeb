@@ -46,6 +46,7 @@ const KEY_ALIASES = {
   "sidebar.addons": "nav_addons",
   "sidebar.expandSidebar": "cd_expand_sidebar",
   "sidebar.home": "nav_home",
+  "sidebar.iptv": "nav_iptv",
   "sidebar.library": "nav_library",
   "sidebar.search": "nav_search",
   "sidebar.settings": "nav_settings",

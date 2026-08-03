@@ -50,8 +50,36 @@ const DEFAULTS = {
   streamAutoPlayReuseBingeGroup: true,
   streamReuseLastLinkEnabled: false,
   streamReuseLastLinkCacheHours: 24,
-  streamAutoPlayTimeoutSeconds: 3
+  streamAutoPlayTimeoutSeconds: 3,
+  // AI subtitles. The API keys stay device-local: profileSettingsSyncService's
+  // player_settings export is an explicit allowlist and deliberately omits them.
+  // Groq by default: the build ships working Groq keys, so subtitles work
+  // out of the box with no setup. Gemini stays available in Settings.
+  subtitleAiProvider: "groq",
+  subtitleAiGeminiKey: "",
+  subtitleAiGroqKey: "",
+  subtitleAiAutoSyncEnabled: true,
+  subtitleAiTranslateEnabled: true,
+  subtitleAiTargetLanguage: "es-419"
 };
+
+const SUBTITLE_AI_PROVIDERS = ["gemini", "groq"];
+// API keys are secrets tied to this device; they must not travel with the
+// profile settings sync payload.
+export const PLAYER_SETTINGS_LOCAL_ONLY_KEYS = ["subtitleAiGeminiKey", "subtitleAiGroqKey"];
+
+function normalizeSubtitleAiProvider(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return SUBTITLE_AI_PROVIDERS.includes(normalized) ? normalized : DEFAULTS.subtitleAiProvider;
+}
+
+function normalizeApiKey(value) {
+  return String(value ?? "")
+    .trim()
+    .slice(0, 400);
+}
 
 const STREAM_AUTO_PLAY_MODES = ["MANUAL", "FIRST_STREAM", "REGEX_MATCH"];
 const STREAM_AUTO_PLAY_SOURCES = ["ALL_SOURCES", "INSTALLED_ADDONS_ONLY", "ENABLED_PLUGINS_ONLY"];
@@ -289,6 +317,19 @@ export function normalizePlayerSettings(settings = {}) {
     subtitlesEnabled,
     subtitleLanguage: preferredLanguage,
     secondarySubtitleLanguage: secondaryPreferredLanguage,
+    subtitleAiProvider: normalizeSubtitleAiProvider(persistentSettings.subtitleAiProvider),
+    subtitleAiGeminiKey: normalizeApiKey(persistentSettings.subtitleAiGeminiKey),
+    subtitleAiGroqKey: normalizeApiKey(persistentSettings.subtitleAiGroqKey),
+    subtitleAiAutoSyncEnabled: Boolean(
+      persistentSettings.subtitleAiAutoSyncEnabled ?? DEFAULTS.subtitleAiAutoSyncEnabled
+    ),
+    subtitleAiTranslateEnabled: Boolean(
+      persistentSettings.subtitleAiTranslateEnabled ?? DEFAULTS.subtitleAiTranslateEnabled
+    ),
+    subtitleAiTargetLanguage: normalizeSelectableSubtitleLanguageCode(
+      persistentSettings.subtitleAiTargetLanguage ?? DEFAULTS.subtitleAiTargetLanguage,
+      DEFAULTS.subtitleAiTargetLanguage
+    ),
     subtitleStyle: {
       ...subtitleStyle,
       preferredLanguage,
