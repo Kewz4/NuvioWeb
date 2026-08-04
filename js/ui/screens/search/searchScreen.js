@@ -1,6 +1,13 @@
 import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { createVirtualKeyboard } from "../../components/virtualKeyboard.js";
+import { LocalStore } from "../../../core/storage/localStore.js";
+import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
+import { watchProgressRepository } from "../../../data/repository/watchProgressRepository.js";
+
+// Titles remembered for keyboard suggestions, across sessions.
+const SEARCH_TITLE_INDEX_KEY = "searchTitleIndex";
+const SEARCH_TITLE_INDEX_LIMIT = 4000;
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
 import { watchedItemsRepository } from "../../../data/repository/watchedItemsRepository.js";
@@ -435,6 +442,9 @@ export const SearchScreen = {
     this.searchRouteEnterPending = true;
     this.activationGuardUntil = Date.now() + 220;
     this.layoutPrefs = LayoutPreferences.get();
+    // Not awaited: suggestions must be ready early, but nothing on this screen
+    // should wait on them.
+    void this.primeTitleIndex();
     try {
       this.sidebarProfile = await getSidebarProfileState();
     } catch (err) {
@@ -575,6 +585,13 @@ export const SearchScreen = {
     this.buildNavigationModel();
     this.bindActionEvents();
     input.value = this.query || "";
+    if (this.keyboard) {
+      // The keyboard owns focus while it is open. Pulling it back to the field
+      // here left the highlight on an element the D-pad no longer drove.
+      this.keyboard.render();
+      this.pendingAutoFocusResults = false;
+      return;
+    }
     input.focus?.();
     this.focusNode(this.container?.querySelector(".focusable.focused") || null, input);
     restoreInputSelection(input, selectionSnapshot);
@@ -919,8 +936,8 @@ export const SearchScreen = {
               placeholder="${escapeHtml(t("search_placeholder", {}, "Search movies & series"))}"
               value="${escapeHtml(queryText)}"
             />
+            <div id="searchKeyboard" class="search-keyboard"></div>
           </section>
-          <div id="searchKeyboard" class="search-keyboard"></div>
           ${this.renderRows()}
         </main>
       </div>
@@ -1723,6 +1740,7 @@ export const SearchScreen = {
   indexRowTitles(rows = []) {
     this.titleIndex = this.titleIndex || [];
     this.titleIndexSeen = this.titleIndexSeen || new Set();
+    const before = this.titleIndex.length;
     (rows || []).forEach((row) => {
       (row?.items || []).forEach((item) => {
         const name = String(item?.name || item?.title || "").trim();
@@ -1738,9 +1756,64 @@ export const SearchScreen = {
       });
     });
     // Bounded so a long session cannot grow it without limit.
-    if (this.titleIndex.length > 4000) {
-      this.titleIndex = this.titleIndex.slice(-4000);
+    if (this.titleIndex.length > SEARCH_TITLE_INDEX_LIMIT) {
+      this.titleIndex = this.titleIndex.slice(-SEARCH_TITLE_INDEX_LIMIT);
       this.titleIndexSeen = new Set(this.titleIndex.map((entry) => entry.key));
+    }
+    if (this.titleIndex.length !== before) {
+      this.persistTitleIndex();
+    }
+  },
+
+  /**
+   * Keeps the index across sessions.
+   *
+   * Suggestions that only learn from this session's requests are useless on the
+   * first search of the evening — which is most of them. Persisting means the
+   * very first keypress after opening the app already has something to offer.
+   */
+  persistTitleIndex() {
+    if (this.persistIndexTimer) {
+      clearTimeout(this.persistIndexTimer);
+    }
+    // Written on an idle timer: indexing runs inside the result path, and
+    // serialising four thousand titles there would show up as jank.
+    this.persistIndexTimer = setTimeout(() => {
+      this.persistIndexTimer = null;
+      try {
+        LocalStore.set(
+          SEARCH_TITLE_INDEX_KEY,
+          (this.titleIndex || []).slice(-SEARCH_TITLE_INDEX_LIMIT).map((entry) => entry.name)
+        );
+      } catch (_) {
+        // A full storage quota must never break searching.
+      }
+    }, 1200);
+  },
+
+  /** Restores the persisted index and seeds it from what is already on device. */
+  async primeTitleIndex() {
+    this.titleIndex = this.titleIndex || [];
+    this.titleIndexSeen = this.titleIndexSeen || new Set();
+
+    const stored = LocalStore.get(SEARCH_TITLE_INDEX_KEY, null);
+    if (Array.isArray(stored) && stored.length) {
+      this.indexRowTitles([{ items: stored.map((name) => ({ name })) }]);
+    }
+
+    // The library and the resume list are local and already loaded elsewhere,
+    // so they cost nothing and cover the titles this household actually wants.
+    try {
+      const [saved, recent] = await Promise.all([
+        savedLibraryRepository.getAll?.().catch(() => []) ?? [],
+        watchProgressRepository.getRecent(60, { enrichMetadata: false }).catch(() => [])
+      ]);
+      this.indexRowTitles([
+        { items: (saved || []).map((item) => ({ name: item?.name || item?.title })) },
+        { items: (recent || []).map((item) => ({ name: item?.title || item?.name })) }
+      ]);
+    } catch (_) {
+      // Seeding is opportunistic; the index still fills from results.
     }
   },
 
@@ -2037,8 +2110,15 @@ export const SearchScreen = {
     // While the keyboard is up it owns the remote; the rows behind it must not
     // also move.
     if (this.keyboard) {
+      // If a render detached the keyboard's host, the object would keep
+      // swallowing every press while nothing moved on screen. Rebuild it rather
+      // than trapping the viewer.
+      const host = this.container?.querySelector("#searchKeyboard");
+      if (!host || !host.firstElementChild) {
+        this.restoreKeyboardAfterRender();
+      }
       const isBack = Platform.isBackEvent(event);
-      if (this.keyboard.handleKeyDown(event, { isBack })) {
+      if (this.keyboard?.handleKeyDown(event, { isBack })) {
         event?.preventDefault?.();
         event?.stopPropagation?.();
         return;
