@@ -32,6 +32,7 @@ const LETTER_LAYERS = {
 // Wider keys that do something other than insert a character. `span` is the
 // flex weight, so the row always fills its width whatever the labels are.
 const ACTIONS = [
+  { id: "shift", label: "Mayús", span: 2 },
   { id: "layer", label: "#+=", span: 2 },
   { id: "space", label: "Espacio", span: 4 },
   { id: "backspace", label: "⌫", span: 2 },
@@ -75,8 +76,14 @@ export function createVirtualKeyboard({
   let text = String(value || "");
   let suggestions = [];
   let layer = "letters";
+  // Starts on, because the first character of a title usually is a capital and
+  // typing one letter is a worse default than turning it off once.
+  let shift = true;
   let row = 0;
   let col = 0;
+
+  /** A key as it should read and insert right now. */
+  const cased = (key) => (shift ? key : key.toLowerCase());
 
   const keys = () => LETTER_LAYERS[layer];
   const rowsCount = () => keys().length + 1; // + the action row
@@ -121,7 +128,7 @@ export function createVirtualKeyboard({
           .map(
             (key, colIndex) => `
           <button class="vk-key${row === rowIndex && col === colIndex ? " focused" : ""}"
-                  data-vk-row="${rowIndex}" data-vk-col="${colIndex}">${escapeHtml(key)}</button>`
+                  data-vk-row="${rowIndex}" data-vk-col="${colIndex}">${escapeHtml(cased(key))}</button>`
           )
           .join("")}
       </div>`
@@ -133,8 +140,8 @@ export function createVirtualKeyboard({
         ${ACTIONS.map(
           (action, index) => `
           <button class="vk-key vk-action${action.primary ? " primary" : ""}${
-            row === keys().length && col === index ? " focused" : ""
-          }"
+            action.id === "shift" && shift ? " active" : ""
+          }${row === keys().length && col === index ? " focused" : ""}"
                   style="flex-grow:${action.span}"
                   data-vk-row="${keys().length}" data-vk-col="${index}">${escapeHtml(
                     action.id === "layer" ? (layer === "letters" ? "#+=" : "ABC") : action.label
@@ -175,16 +182,17 @@ export function createVirtualKeyboard({
       return;
     }
     if (row < keys().length) {
-      // Keys display uppercase because that reads better at three metres, but
-      // searching is case-insensitive so the stored text stays as typed.
-      setText(text + keys()[row][col]);
+      setText(text + cased(keys()[row][col]));
       return;
     }
     const action = ACTIONS[col];
     if (!action) {
       return;
     }
-    if (action.id === "layer") {
+    if (action.id === "shift") {
+      shift = !shift;
+      render();
+    } else if (action.id === "layer") {
       layer = layer === "letters" ? "symbols" : "letters";
       clampCursor();
       render();

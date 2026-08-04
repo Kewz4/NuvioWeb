@@ -21968,3 +21968,10 @@ html.legacy-webos .debug-console-log-frame {
   display: flex;
   justify-content: center;
 }
+
+/* The shift key reads as engaged rather than merely focusable, so the case of
+   the letters on screen always has a visible cause. */
+.vk-action.active {
+  background: rgba(var(--focus-color-rgb), 0.34);
+  border-color: rgba(var(--focus-color-rgb), 0.55);
+}

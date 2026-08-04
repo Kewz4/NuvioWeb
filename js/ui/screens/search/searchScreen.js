@@ -331,6 +331,8 @@ export const SearchScreen = {
         ? "search"
         : "idle"
       : String(snapshot?.mode || (this.query.length >= 2 ? "search" : "idle"));
+    this.titleIndex = this.titleIndex || [];
+    this.titleIndexSeen = this.titleIndexSeen || new Set();
     this.rows = Array.isArray(snapshot?.rows)
       ? snapshot.rows.map((row, index) => ({
           ...row,
@@ -395,6 +397,9 @@ export const SearchScreen = {
         return;
       }
       this.render();
+      // A full render replaces the keyboard's host node, so put it back rather
+      // than leaving the viewer typing into something that no longer exists.
+      this.restoreKeyboardAfterRender();
     });
   },
 
@@ -516,6 +521,7 @@ export const SearchScreen = {
         onFirstResults: (rows) => {
           if (token !== this.loadToken) return;
           this.rows = rows;
+          this.indexRowTitles(rows);
           if (this.shouldPatchResultsWithoutReplacingInput()) {
             this.renderResultsOnly();
             return;
@@ -525,10 +531,13 @@ export const SearchScreen = {
       });
     } else if (this.mode === "discover") {
       this.rows = await this.loadDiscoverRows();
+      this.indexRowTitles(this.rows);
     } else {
       this.rows = [];
     }
     if (token !== this.loadToken) return;
+    this.indexRowTitles(this.rows);
+    this.keyboard?.setSuggestions(this.catalogueSuggestions(this.query || ""));
     if (this.shouldPatchResultsWithoutReplacingInput()) {
       this.renderResultsOnly();
       return;
@@ -537,6 +546,14 @@ export const SearchScreen = {
   },
 
   shouldPatchResultsWithoutReplacingInput() {
+    // The app's keyboard lives in the page, so a full re-render destroys it
+    // mid-typing and strands the viewer needing a Back press to escape. While
+    // it is open, only the results are patched. (The old check keyed on the
+    // input being the focused element, which stopped being true once the field
+    // was made readonly to keep Samsung's IME away.)
+    if (this.keyboard) {
+      return true;
+    }
     return this.isSearchInputEditingActive() && !this.pendingAutoFocusResults;
   },
 
@@ -843,6 +860,22 @@ export const SearchScreen = {
       .join("");
   },
 
+  /** Re-opens the keyboard after a render that replaced its host node. */
+  restoreKeyboardAfterRender() {
+    if (!this.keyboard) {
+      return;
+    }
+    const value = this.keyboard.getValue();
+    this.keyboard = null;
+    this.openSearchKeyboard();
+    if (this.keyboard && value) {
+      const input = this.container?.querySelector("#searchInput");
+      if (input) {
+        input.value = value;
+      }
+    }
+  },
+
   render() {
     this.cancelScheduledRender();
     const queryText = this.query || "";
@@ -877,6 +910,8 @@ export const SearchScreen = {
               id="searchInput"
               class="search-input-field focusable"
               type="text"
+              readonly
+              inputmode="none"
               data-action="searchInput"
               autocomplete="off"
               autocapitalize="off"
@@ -1677,6 +1712,45 @@ export const SearchScreen = {
    * which belong to Live TV — so picking one always lands on something that
    * exists.
    */
+  /**
+   * Remembers every title seen, so suggestions never wait on a request.
+   *
+   * Suggestions used to read this.rows, which only fills after the debounced
+   * search returns — by which point the results themselves were on screen and
+   * the suggestion had nothing left to save. The index is fed by every row that
+   * loads, including the discover rows present before a single key is pressed.
+   */
+  indexRowTitles(rows = []) {
+    this.titleIndex = this.titleIndex || [];
+    this.titleIndexSeen = this.titleIndexSeen || new Set();
+    (rows || []).forEach((row) => {
+      (row?.items || []).forEach((item) => {
+        const name = String(item?.name || item?.title || "").trim();
+        if (!name) {
+          return;
+        }
+        const key = name.toLowerCase();
+        if (this.titleIndexSeen.has(key)) {
+          return;
+        }
+        this.titleIndexSeen.add(key);
+        this.titleIndex.push({ name, key });
+      });
+    });
+    // Bounded so a long session cannot grow it without limit.
+    if (this.titleIndex.length > 4000) {
+      this.titleIndex = this.titleIndex.slice(-4000);
+      this.titleIndexSeen = new Set(this.titleIndex.map((entry) => entry.key));
+    }
+  },
+
+  /**
+   * Titles to offer above the keys.
+   *
+   * Movie and series names only — channel names belong to Live TV — matched
+   * synchronously against the local index. Titles that start with what was
+   * typed lead, since those are almost always the one meant.
+   */
   catalogueSuggestions(query = "") {
     const key = String(query || "")
       .trim()
@@ -1684,20 +1758,19 @@ export const SearchScreen = {
     if (key.length < 2) {
       return [];
     }
-    const seen = new Set();
-    const names = [];
-    (this.rows || []).forEach((row) => {
-      (row?.items || []).forEach((item) => {
-        const name = String(item?.name || item?.title || "").trim();
-        const normalized = name.toLowerCase();
-        if (!name || seen.has(normalized) || !normalized.includes(key)) {
-          return;
+    const starts = [];
+    const contains = [];
+    for (const entry of this.titleIndex || []) {
+      if (entry.key.startsWith(key)) {
+        starts.push(entry.name);
+        if (starts.length >= 5) {
+          break;
         }
-        seen.add(normalized);
-        names.push(name);
-      });
-    });
-    return names.slice(0, 5);
+      } else if (contains.length < 5 && entry.key.includes(key)) {
+        contains.push(entry.name);
+      }
+    }
+    return [...starts, ...contains].slice(0, 5);
   },
 
   bindSearchInputEvents() {
@@ -2073,10 +2146,9 @@ export const SearchScreen = {
       this.activateActionNode(current);
     }
     if (action === "searchInput") {
-      const input = this.container?.querySelector("#searchInput");
-      if (input) {
-        input.focus();
-      }
+      // Deliberately not input.focus(): focusing a text field is precisely what
+      // raises Tizen's IME, which is the keyboard this app replaces.
+      this.openSearchKeyboard();
     }
   },
 

@@ -947,9 +947,9 @@ export const IptvScreen = {
   /**
    * Opens the TV's on-screen keyboard against the search field.
    *
-   * Focusing a real <input> is what raises Tizen's IME; there is no API to
-   * summon it directly. The field sits off-screen until then so it never
-   * competes with the rails for D-pad focus.
+   * There is no text input on this screen at all, which is the point: focusing
+   * one is what raises Tizen's IME, and the whole reason the app draws its own
+   * keyboard is to keep that from happening.
    */
   beginChannelSearch() {
     const host = this.container?.querySelector("#iptvKeyboard");
