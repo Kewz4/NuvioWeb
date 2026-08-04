@@ -2287,7 +2287,7 @@ export const PlayerScreen = {
     this.subtitleGenerationRunning = false;
     this.nextEpisodeTransitionMeta = null;
     this.subtitleDialogVisible = false;
-    this.subtitleDialogTab = "builtIn";
+    this.subtitleDialogTab = "addons";
     this.subtitleDialogIndex = 0;
     this.subtitleLanguageRailIndex = 0;
     this.subtitleOptionRailIndex = 0;
@@ -6900,9 +6900,21 @@ export const PlayerScreen = {
     const shouldReturnToStream = !forceDetail && this.shouldReturnToStreamOnBack();
     Router.suppressNextPopstate?.(1500);
     Router.ignoreSinglePopstate?.();
-    const targetRoute = shouldReturnToStream ? "stream" : this.params?.itemId ? "detail" : "home";
-    const targetParams =
-      targetRoute === "stream"
+    // A Live TV channel has no itemId and no stream screen behind it, so the
+    // generic fallback dropped the viewer on Home — several button presses away
+    // from the channel list they were just in. Back belongs where they came
+    // from.
+    const isLive = this.isLiveChannelPlayback();
+    const targetRoute = isLive
+      ? "iptv"
+      : shouldReturnToStream
+        ? "stream"
+        : this.params?.itemId
+          ? "detail"
+          : "home";
+    const targetParams = isLive
+      ? {}
+      : targetRoute === "stream"
         ? streamParams
         : targetRoute === "detail"
           ? this.buildDetailRouteParamsFromPlayer()
@@ -8872,6 +8884,11 @@ export const PlayerScreen = {
   getControlDefinitions() {
     const uiState = this.getPlayerUiState();
     const nextEpisode = this.resolveNextEpisodeInfo();
+    // A channel has one feed, no episodes and nothing to speed up, so those
+    // controls are omitted rather than left present and inert. Every button a
+    // viewer can land on and get nothing from is one that makes the remote feel
+    // broken.
+    const isLive = this.isLiveChannelPlayback();
     const base = [
       {
         action: "playPause",
@@ -8882,7 +8899,7 @@ export const PlayerScreen = {
       }
     ];
 
-    if (nextEpisode?.hasAired && !this.nextEpisodeLaunching) {
+    if (!isLive && nextEpisode?.hasAired && !this.nextEpisodeLaunching) {
       base.push({
         action: "playNextEpisode",
         icon: "assets/icons/ic_player_skip_next.svg",
@@ -8907,13 +8924,15 @@ export const PlayerScreen = {
       title: t("audio_dialog_title", {}, "Audio")
     });
 
-    base.push({
-      action: "source",
-      icon: "assets/icons/ic_player_source.svg",
-      title: t("sources_title", {}, "Sources")
-    });
+    if (!isLive) {
+      base.push({
+        action: "source",
+        icon: "assets/icons/ic_player_source.svg",
+        title: t("sources_title", {}, "Sources")
+      });
+    }
 
-    if (Array.isArray(uiState.episodesAll) && uiState.episodesAll.length) {
+    if (!isLive && Array.isArray(uiState.episodesAll) && uiState.episodesAll.length) {
       base.push({
         action: "episodes",
         icon: "assets/icons/ic_player_episodes.svg",
@@ -8934,11 +8953,16 @@ export const PlayerScreen = {
     const playbackSpeed = this.getPlaybackSpeed();
     return [
       ...base.slice(0, Math.max(0, base.length - 1)),
-      {
-        action: "speed",
-        label: `${playbackSpeed.toFixed(playbackSpeed % 1 ? 2 : 0)}x`,
-        title: t("player_playback_speed", {}, "Playback speed")
-      },
+      // Speed has no meaning on a live feed, which always plays at the edge.
+      ...(isLive
+        ? []
+        : [
+            {
+              action: "speed",
+              label: `${playbackSpeed.toFixed(playbackSpeed % 1 ? 2 : 0)}x`,
+              title: t("player_playback_speed", {}, "Playback speed")
+            }
+          ]),
       {
         action: "aspect",
         icon: "assets/icons/ic_player_aspect_ratio.svg",
@@ -11313,8 +11337,12 @@ export const PlayerScreen = {
   },
 
   getSubtitleTabs() {
+    // The Built-in tab is deliberately absent. A stream's embedded tracks are
+    // unlabelled, frequently duplicated and almost never in Spanish, so listing
+    // them alongside the addon results turned one decision into three. The menu
+    // now offers only what is actually useful here: addon subtitles, and the AI
+    // track when no Spanish one exists. "Off" still lives in the language rail.
     return [
-      { id: "builtIn", label: t("subtitle_tab_builtin", {}, "Built-in") },
       { id: "addons", label: t("subtitle_tab_addons", {}, "Addons") },
       { id: "style", label: t("subtitle_tab_style", {}, "Style") },
       { id: "delay", label: t("subtitle_tab_delay", {}, "Delay") }
@@ -13349,8 +13377,10 @@ export const PlayerScreen = {
     if (cachedOptions) {
       return cachedOptions;
     }
+    // Only "Off" is taken from the built-in set; the embedded tracks themselves
+    // are not offered (see getSubtitleTabs for why).
     const builtInEntries = this.getSubtitleEntries("builtIn").filter(
-      (entry) => !entry?.disabled || entry?.id === "subtitle-off"
+      (entry) => entry?.id === "subtitle-off"
     );
     const addonEntries = this.getSubtitleEntries("addons").filter((entry) => !entry?.disabled);
     const options = [];

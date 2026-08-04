@@ -155,8 +155,22 @@ function resolveProgressPercent(item = {}) {
   if (stored != null) {
     return stored;
   }
-  const durationMs = Number(item.durationMs || 0);
-  const positionMs = Number(item.positionMs || 0);
+  // Continue Watching entries arrive in several shapes: the Trakt path carries a
+  // percentage, the local store carries milliseconds, and enrichment nests the
+  // metadata rather than merging it. Reading only one of those left the resume
+  // bar undrawn on most entries.
+  const meta = item.enrichedMeta && typeof item.enrichedMeta === "object" ? item.enrichedMeta : {};
+  const pick = (...names) => {
+    for (const name of names) {
+      const value = Number(item[name] ?? meta[name] ?? 0);
+      if (Number.isFinite(value) && value > 0) {
+        return value;
+      }
+    }
+    return 0;
+  };
+  const durationMs = pick("durationMs") || pick("durationSeconds", "duration") * 1000;
+  const positionMs = pick("positionMs") || pick("positionSeconds", "position") * 1000;
   if (!(durationMs > 0) || !(positionMs > 0)) {
     return null;
   }

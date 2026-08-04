@@ -2820,6 +2820,11 @@
     <string name="iptv_category_religious">Religious</string>
     <string name="iptv_category_general">General channels</string>
     <string name="player_live_badge">Live</string>
+    <string name="iptv_search">Search channels</string>
+    <string name="iptv_search_active">Search: %1$s</string>
+    <string name="iptv_search_results">Search results</string>
+    <string name="iptv_search_placeholder">Type a channel name</string>
+    <string name="iptv_search_empty">No channels match that search.</string>
     <string name="iptv_no_channels">No live channels here right now.</string>
     <string name="iptv_dpad_hint">Left and Right switch between categories and channels. Up and Down scroll.</string>
     <string name="iptv_guide_on_demand">This playlist is very large, so the guide loads per channel.</string>

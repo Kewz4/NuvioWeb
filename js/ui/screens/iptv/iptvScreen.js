@@ -30,6 +30,7 @@ import { CHANNEL_ALIVE, CHANNEL_DEAD, probeChannels } from "../../../core/iptv/c
 import { iptvRequestHeaders } from "../../../core/iptv/xtreamClient.js";
 
 const FAVORITES_GROUP_KEY = "__favorites__";
+const SEARCH_GROUP_KEY = "__search__";
 
 // Row identity lives in `data-row`, NOT `data-index`: ScreenUtils.indexFocusables
 // renumbers `data-index` on every `.focusable` in the container by global focus
@@ -94,6 +95,15 @@ function categoryLabel(category = "") {
   return label && label !== key ? label : category;
 }
 
+/** Comparison form for search: accent-free, punctuation-free lowercase. */
+function normalizeSearchText(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 function formatClock(ms) {
   try {
     return new Date(Number(ms)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -122,6 +132,7 @@ export const IptvScreen = {
     this.groupEntries = [];
     this.channelRowCount = 0;
     this.onDemandGuide = new Map();
+    this.searchQuery = "";
     this.probedChannelIds = new Set();
     this.probeInFlight = false;
     this.guideSweepStarted = false;
@@ -347,9 +358,29 @@ export const IptvScreen = {
     return Boolean(this.snapshot?.groups?.some((group) => group.name === key));
   },
 
+  /**
+   * Channels matching the current search, across every category.
+   *
+   * Matching is on the normalized name so accents and the "(1080p)" suffix do
+   * not have to be typed: someone looking for "Canción" finds it by typing
+   * "cancion", which matters when the only keyboard is a remote.
+   */
+  searchResults() {
+    const query = normalizeSearchText(this.searchQuery);
+    if (!query || !this.snapshot) {
+      return [];
+    }
+    return this.snapshot.channels.filter((channel) =>
+      normalizeSearchText(channel.name).includes(query)
+    );
+  },
+
   visibleChannels() {
     if (!this.snapshot) {
       return [];
+    }
+    if (this.selectedGroupKey === SEARCH_GROUP_KEY) {
+      return this.searchResults();
     }
     if (this.selectedGroupKey === FAVORITES_GROUP_KEY) {
       return this.snapshot.favorites;
@@ -384,6 +415,13 @@ export const IptvScreen = {
     const groups = this.snapshot?.groups || [];
     const favorites = this.snapshot?.favorites || [];
     const entries = [
+      {
+        key: SEARCH_GROUP_KEY,
+        label: this.searchQuery
+          ? t("iptv_search_active", { 1: this.searchQuery }, `Search: ${this.searchQuery}`)
+          : t("iptv_search", {}, "Search channels"),
+        count: this.searchQuery ? this.searchResults().length : ""
+      },
       ...(favorites.length
         ? [{ key: FAVORITES_GROUP_KEY, label: t("iptv_favorites"), count: favorites.length }]
         : []),
@@ -457,7 +495,11 @@ export const IptvScreen = {
   renderChannelGrid() {
     const channels = this.visibleChannels();
     if (!channels.length) {
-      return `<section class="iptv-rail iptv-channels empty"><p>${escapeHtml(t("iptv_no_channels"))}</p></section>`;
+      const emptyMessage =
+        this.selectedGroupKey === SEARCH_GROUP_KEY && this.searchQuery
+          ? t("iptv_search_empty", {}, "No channels match that search.")
+          : t("iptv_no_channels");
+      return `<section class="iptv-rail iptv-channels empty"><p>${escapeHtml(emptyMessage)}</p></section>`;
     }
     const favorites = new Set(this.settings.favoriteChannelIds);
     // Real provider categories run to hundreds of channels (iptv-org's Spanish
@@ -471,9 +513,11 @@ export const IptvScreen = {
     // so the row count is the full list, not the window.
     this.channelRowCount = channels.length;
     const groupName =
-      this.selectedGroupKey === FAVORITES_GROUP_KEY
-        ? t("iptv_favorites")
-        : categoryLabel(this.selectedGroupKey);
+      this.selectedGroupKey === SEARCH_GROUP_KEY
+        ? t("iptv_search_results", {}, "Search results")
+        : this.selectedGroupKey === FAVORITES_GROUP_KEY
+          ? t("iptv_favorites")
+          : categoryLabel(this.selectedGroupKey);
 
     return `
       <section class="iptv-rail iptv-channels${zoneActive ? " zone-active" : ""}">
@@ -552,6 +596,10 @@ export const IptvScreen = {
         <main class="home-main iptv-main">
           <header class="iptv-header">
             <h1 class="iptv-title">${escapeHtml(t("iptv_title"))}</h1>
+            <input id="iptvSearchInput" class="iptv-search-input" type="text"
+                   autocomplete="off" autocorrect="off" spellcheck="false"
+                   placeholder="${escapeHtml(t("iptv_search_placeholder", {}, "Type a channel name"))}"
+                   value="${escapeHtml(this.searchQuery || "")}" />
             <p class="iptv-hint">${escapeHtml(t("iptv_dpad_hint"))}</p>
             ${
               this.snapshot?.guideOnDemand
@@ -578,6 +626,37 @@ export const IptvScreen = {
       return;
     }
     this.container.__iptvEventsBound = true;
+
+    this.container.addEventListener("input", (event) => {
+      if (event.target?.id !== "iptvSearchInput") {
+        return;
+      }
+      this.searchQuery = String(event.target.value || "");
+      this.selectedGroupKey = SEARCH_GROUP_KEY;
+      this.channelRenderLimit = CHANNEL_RENDER_STEP;
+      this.channelIndex = 0;
+      this.replaceChannelRail();
+      this.updateSearchRailLabel();
+    });
+
+    this.container.addEventListener("keydown", (event) => {
+      if (event.target?.id !== "iptvSearchInput") {
+        return;
+      }
+      // While the keyboard owns the keys, only two mean anything to this
+      // screen: Enter commits the search, Back abandons it.
+      if (event.key === "Enter" || Number(event.keyCode) === 13) {
+        event.stopPropagation();
+        this.endChannelSearch();
+        if (this.searchResults().length) {
+          this.channelIndex = 0;
+          this.setZone(ZONE_CHANNELS);
+        }
+      } else if (Environment.isBackEvent(event)) {
+        event.stopPropagation();
+        this.endChannelSearch();
+      }
+    });
 
     this.container.addEventListener("click", (event) => {
       const target = event.target.closest?.("[data-action]");
@@ -858,7 +937,60 @@ export const IptvScreen = {
     this.scrollRowIntoView(target);
   },
 
+  /**
+   * Opens the TV's on-screen keyboard against the search field.
+   *
+   * Focusing a real <input> is what raises Tizen's IME; there is no API to
+   * summon it directly. The field sits off-screen until then so it never
+   * competes with the rails for D-pad focus.
+   */
+  beginChannelSearch() {
+    const input = this.container?.querySelector("#iptvSearchInput");
+    if (!input) {
+      return;
+    }
+    this.selectedGroupKey = SEARCH_GROUP_KEY;
+    this.container.classList.add("iptv-searching");
+    input.focus();
+    try {
+      input.setSelectionRange(input.value.length, input.value.length);
+    } catch (_) {
+      // Not every engine supports selection on a focused text input.
+    }
+  },
+
+  endChannelSearch() {
+    this.container?.classList.remove("iptv-searching");
+    this.container?.querySelector("#iptvSearchInput")?.blur();
+    this.syncDomFocusToZone();
+  },
+
+  /** Refreshes just the search row's label and count. */
+  updateSearchRailLabel() {
+    const row = this.container?.querySelector(`[data-zone="${ZONE_GROUPS}"][data-row="0"]`);
+    if (!row || this.groupEntries?.[0]?.key !== SEARCH_GROUP_KEY) {
+      return;
+    }
+    const label = row.querySelector(".iptv-group-label");
+    const count = row.querySelector(".iptv-group-count");
+    if (label) {
+      label.textContent = this.searchQuery
+        ? t("iptv_search_active", { 1: this.searchQuery }, `Search: ${this.searchQuery}`)
+        : t("iptv_search", {}, "Search channels");
+    }
+    if (count) {
+      count.textContent = this.searchQuery ? String(this.searchResults().length) : "";
+    }
+  },
+
   activateFocused() {
+    if (this.focusZone === ZONE_GROUPS) {
+      const searchEntry = (this.groupEntries || [])[this.groupIndex];
+      if (searchEntry?.key === SEARCH_GROUP_KEY) {
+        this.beginChannelSearch();
+        return;
+      }
+    }
     if (this.focusZone === ZONE_GROUPS) {
       // The category is already applied as the highlight moves, so Enter simply
       // advances into the channel list.

@@ -2518,6 +2518,11 @@
     <string name="iptv_category_religious">Religiosos</string>
     <string name="iptv_category_general">Canales generales</string>
     <string name="player_live_badge">En vivo</string>
+    <string name="iptv_search">Buscar canales</string>
+    <string name="iptv_search_active">Buscar: %1$s</string>
+    <string name="iptv_search_results">Resultados de búsqueda</string>
+    <string name="iptv_search_placeholder">Escribe el nombre de un canal</string>
+    <string name="iptv_search_empty">Ningún canal coincide con esa búsqueda.</string>
     <string name="iptv_no_channels">No hay canales en vivo aquí por ahora.</string>
     <string name="iptv_dpad_hint">Izquierda y Derecha cambian entre categorías y canales. Arriba y Abajo desplazan la lista.</string>
     <string name="iptv_guide_on_demand">Esta lista es muy grande, así que la guía se carga por canal.</string>

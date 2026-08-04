@@ -21828,3 +21828,29 @@ html.legacy-webos .debug-console-log-frame {
   vertical-align: middle;
   text-transform: uppercase;
 }
+
+/* The search field only exists to give Tizen's on-screen keyboard something to
+   attach to — focusing a real <input> is the only way to raise the IME. It is
+   parked off-screen so it never takes D-pad focus from the rails, and pulled
+   into view only while a search is being typed. */
+.iptv-search-input {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.iptv-searching .iptv-search-input {
+  position: static;
+  width: min(720px, 52vw);
+  height: auto;
+  margin-top: 14px;
+  padding: 14px 22px;
+  border: 3px solid var(--focus-color, #ffffff);
+  border-radius: 12px;
+  background: var(--card-bg, #1a1a1a);
+  color: var(--text-color, #ffffff);
+  font-size: 26px;
+  opacity: 1;
+}
