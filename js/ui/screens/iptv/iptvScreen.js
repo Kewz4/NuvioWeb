@@ -28,6 +28,7 @@ import { programmeProgress } from "../../../core/iptv/epgIndex.js";
 import { categoryLabelKey } from "../../../core/iptv/channelCategories.js";
 import { CHANNEL_ALIVE, CHANNEL_DEAD, probeChannels } from "../../../core/iptv/channelHealth.js";
 import { iptvRequestHeaders } from "../../../core/iptv/xtreamClient.js";
+import { createVirtualKeyboard } from "../../components/virtualKeyboard.js";
 
 const FAVORITES_GROUP_KEY = "__favorites__";
 const SEARCH_GROUP_KEY = "__search__";
@@ -61,6 +62,9 @@ const HEALTH_PROBE_LOOKAHEAD = 24;
 // Checking only a window meant a dead channel forty rows down survived until
 // someone scrolled onto it; sweeping the whole category means the list settles
 // to only working channels while it is being browsed.
+// How long the channel list waits after the category highlight stops moving.
+const CHANNEL_RAIL_REPAINT_DELAY_MS = 180;
+
 const HEALTH_SWEEP_BATCH = 40;
 const HEALTH_SWEEP_CONCURRENCY = 3;
 
@@ -133,6 +137,8 @@ export const IptvScreen = {
     this.channelRowCount = 0;
     this.onDemandGuide = new Map();
     this.searchQuery = "";
+    this.keyboard = null;
+    this.channelRailTimer = null;
     this.probedChannelIds = new Set();
     this.probeInFlight = false;
     this.guideSweepStarted = false;
@@ -537,7 +543,7 @@ export const IptvScreen = {
             <span class="iptv-channel-logo">
               ${
                 channel.logo
-                  ? `<img src="${escapeHtml(channel.logo)}" alt="" loading="lazy" onerror="this.style.display='none'" />`
+                  ? `<img src="${escapeHtml(channel.logo)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none'" />`
                   : `<span class="iptv-channel-initial">${escapeHtml(channel.name.charAt(0).toUpperCase())}</span>`
               }
             </span>
@@ -596,11 +602,9 @@ export const IptvScreen = {
         <main class="home-main iptv-main">
           <header class="iptv-header">
             <h1 class="iptv-title">${escapeHtml(t("iptv_title"))}</h1>
-            <input id="iptvSearchInput" class="iptv-search-input" type="text"
-                   autocomplete="off" autocorrect="off" spellcheck="false"
-                   placeholder="${escapeHtml(t("iptv_search_placeholder", {}, "Type a channel name"))}"
-                   value="${escapeHtml(this.searchQuery || "")}" />
+
             <p class="iptv-hint">${escapeHtml(t("iptv_dpad_hint"))}</p>
+            <div id="iptvKeyboard" class="iptv-keyboard"></div>
             ${
               this.snapshot?.guideOnDemand
                 ? `<p class="iptv-note">${escapeHtml(t("iptv_guide_on_demand"))}</p>`
@@ -626,37 +630,6 @@ export const IptvScreen = {
       return;
     }
     this.container.__iptvEventsBound = true;
-
-    this.container.addEventListener("input", (event) => {
-      if (event.target?.id !== "iptvSearchInput") {
-        return;
-      }
-      this.searchQuery = String(event.target.value || "");
-      this.selectedGroupKey = SEARCH_GROUP_KEY;
-      this.channelRenderLimit = CHANNEL_RENDER_STEP;
-      this.channelIndex = 0;
-      this.replaceChannelRail();
-      this.updateSearchRailLabel();
-    });
-
-    this.container.addEventListener("keydown", (event) => {
-      if (event.target?.id !== "iptvSearchInput") {
-        return;
-      }
-      // While the keyboard owns the keys, only two mean anything to this
-      // screen: Enter commits the search, Back abandons it.
-      if (event.key === "Enter" || Number(event.keyCode) === 13) {
-        event.stopPropagation();
-        this.endChannelSearch();
-        if (this.searchResults().length) {
-          this.channelIndex = 0;
-          this.setZone(ZONE_CHANNELS);
-        }
-      } else if (Environment.isBackEvent(event)) {
-        event.stopPropagation();
-        this.endChannelSearch();
-      }
-    });
 
     this.container.addEventListener("click", (event) => {
       const target = event.target.closest?.("[data-action]");
@@ -684,6 +657,10 @@ export const IptvScreen = {
     if (!key || key === this.selectedGroupKey) {
       return;
     }
+    if (this.channelRailTimer) {
+      clearTimeout(this.channelRailTimer);
+      this.channelRailTimer = null;
+    }
     this.selectedGroupKey = key;
     this.channelRenderLimit = CHANNEL_RENDER_STEP;
     this.channelIndex = 0;
@@ -701,6 +678,16 @@ export const IptvScreen = {
    * zones, Up/Down move within one, which is what a remote user expects.
    */
   async onKeyDown(event) {
+    // While the keyboard is up it owns the remote entirely; the rails behind it
+    // must not also move.
+    if (this.keyboard) {
+      const isBack = Environment.isBackEvent(event);
+      if (this.keyboard.handleKeyDown(event, { isBack })) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        return;
+      }
+    }
     if (Environment.isBackEvent(event)) {
       event?.preventDefault?.();
       if (this.focusZone !== ZONE_SIDEBAR) {
@@ -798,13 +785,16 @@ export const IptvScreen = {
       this.updateFocusedRow(ZONE_GROUPS, previousIndex, this.groupIndex);
 
       // Moving the highlight also previews that category, so the channel list
-      // always matches what is highlighted.
+      // always matches what is highlighted — but the rebuild is deferred.
+      // Holding Down through eleven categories was rebuilding fifty rows and
+      // their logos eleven times, and the highlight visibly lagged the remote.
+      // Only the category the viewer settles on is worth drawing.
       const entry = (this.groupEntries || [])[this.groupIndex];
       if (entry && entry.key !== this.selectedGroupKey) {
         this.selectedGroupKey = entry.key;
         this.channelRenderLimit = CHANNEL_RENDER_STEP;
         this.channelIndex = 0;
-        this.replaceChannelRail();
+        this.scheduleChannelRailRepaint();
       }
       return;
     }
@@ -891,6 +881,23 @@ export const IptvScreen = {
     }
   },
 
+  /**
+   * Repaints the channel rail once the highlight settles.
+   *
+   * Deliberately short: long enough that a held key coalesces into one repaint,
+   * short enough that a deliberate move feels immediate.
+   */
+  scheduleChannelRailRepaint() {
+    if (this.channelRailTimer) {
+      clearTimeout(this.channelRailTimer);
+    }
+    this.channelRailTimer = setTimeout(() => {
+      this.channelRailTimer = null;
+      this.replaceChannelRail();
+      this.probeVisibleChannels();
+    }, CHANNEL_RAIL_REPAINT_DELAY_MS);
+  },
+
   /** Rebuilds only the channel rail, preserving the rest of the screen. */
   replaceChannelRail() {
     const existing = this.container?.querySelector(".iptv-channels");
@@ -945,23 +952,79 @@ export const IptvScreen = {
    * competes with the rails for D-pad focus.
    */
   beginChannelSearch() {
-    const input = this.container?.querySelector("#iptvSearchInput");
-    if (!input) {
+    const host = this.container?.querySelector("#iptvKeyboard");
+    if (!host) {
       return;
     }
     this.selectedGroupKey = SEARCH_GROUP_KEY;
     this.container.classList.add("iptv-searching");
-    input.focus();
-    try {
-      input.setSelectionRange(input.value.length, input.value.length);
-    } catch (_) {
-      // Not every engine supports selection on a focused text input.
+    this.keyboard = createVirtualKeyboard({
+      container: host,
+      value: this.searchQuery || "",
+      placeholder: t("iptv_search_placeholder", {}, "Type a channel name"),
+      onChange: (value) => {
+        this.searchQuery = value;
+        this.channelRenderLimit = CHANNEL_RENDER_STEP;
+        this.channelIndex = 0;
+        this.replaceChannelRail();
+        this.updateSearchRailLabel();
+        this.keyboard?.setSuggestions(this.channelSuggestions(value));
+      },
+      onSubmit: () => {
+        this.endChannelSearch();
+        if (this.searchResults().length) {
+          this.channelIndex = 0;
+          this.setZone(ZONE_CHANNELS);
+        }
+      },
+      onCancel: () => this.endChannelSearch()
+    });
+    this.keyboard.render();
+    this.keyboard.bindPointer();
+    this.keyboard.setSuggestions(this.channelSuggestions(this.searchQuery || ""));
+  },
+
+  /**
+   * Channel names to offer above the keys.
+   *
+   * Taken from the catalogue itself rather than a search history, so the
+   * suggestions are always things that can actually be played, and typing three
+   * letters is usually enough to stop typing.
+   */
+  channelSuggestions(query = "") {
+    const key = normalizeSearchText(query);
+    if (key.length < 2 || !this.snapshot) {
+      return [];
     }
+    // Names are compared with the resolution suffix stripped, so "Canal 5
+    // (1080p)" and "Canal 5" are one suggestion rather than two.
+    const seen = new Set();
+    const starts = [];
+    const contains = [];
+    for (const channel of this.snapshot.channels) {
+      const name = String(channel.name || "").replace(/\s*[([][^)\]]*[)\]]\s*$/, "");
+      const normalized = normalizeSearchText(name);
+      if (!normalized.includes(key) || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      // A name that starts with what was typed is almost always the intended
+      // one, so those lead regardless of playlist order.
+      (normalized.startsWith(key) ? starts : contains).push(name);
+      if (starts.length >= 5) {
+        break;
+      }
+    }
+    return [...starts, ...contains].slice(0, 5);
   },
 
   endChannelSearch() {
     this.container?.classList.remove("iptv-searching");
-    this.container?.querySelector("#iptvSearchInput")?.blur();
+    const host = this.container?.querySelector("#iptvKeyboard");
+    if (host) {
+      host.innerHTML = "";
+    }
+    this.keyboard = null;
     this.syncDomFocusToZone();
   },
 
@@ -1054,6 +1117,10 @@ export const IptvScreen = {
     // Bumping the token stops the in-flight guide sweep and health probes from
     // touching a screen the viewer has left.
     this.mountToken = Number(this.mountToken || 0) + 1;
+    if (this.channelRailTimer) {
+      clearTimeout(this.channelRailTimer);
+      this.channelRailTimer = null;
+    }
     this.snapshot = null;
     this.onDemandGuide = new Map();
     this.probedChannelIds = new Set();

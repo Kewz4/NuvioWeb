@@ -1,5 +1,6 @@
 import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
+import { createVirtualKeyboard } from "../../components/virtualKeyboard.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
 import { watchedItemsRepository } from "../../../data/repository/watchedItemsRepository.js";
@@ -884,6 +885,7 @@ export const SearchScreen = {
               value="${escapeHtml(queryText)}"
             />
           </section>
+          <div id="searchKeyboard" class="search-keyboard"></div>
           ${this.renderRows()}
         </main>
       </div>
@@ -1624,6 +1626,80 @@ export const SearchScreen = {
     }, delay);
   },
 
+  /**
+   * Opens the in-app keyboard against the search field.
+   *
+   * Samsung's IME is bypassed on purpose: it cannot show suggestions drawn from
+   * this catalogue, and it covers the results the viewer is trying to read.
+   */
+  openSearchKeyboard() {
+    const host = this.container?.querySelector("#searchKeyboard");
+    const input = this.container?.querySelector("#searchInput");
+    if (!host || !input || this.keyboard) {
+      return;
+    }
+    this.container.classList.add("search-typing");
+    this.keyboard = createVirtualKeyboard({
+      container: host,
+      value: input.value || "",
+      placeholder: t("search_placeholder", {}, "Search movies and series"),
+      onChange: (value) => {
+        input.value = value;
+        this.scheduleSearchFromInput(input);
+        this.keyboard?.setSuggestions(this.catalogueSuggestions(value));
+      },
+      onSubmit: async (value) => {
+        input.value = value;
+        this.closeSearchKeyboard();
+        this.cancelScheduledInputSearch();
+        await this.runSearchFromInput(input, { autoFocusResults: true });
+      },
+      onCancel: () => this.closeSearchKeyboard()
+    });
+    this.keyboard.render();
+    this.keyboard.bindPointer();
+    this.keyboard.setSuggestions(this.catalogueSuggestions(input.value || ""));
+  },
+
+  closeSearchKeyboard() {
+    this.container?.classList.remove("search-typing");
+    const host = this.container?.querySelector("#searchKeyboard");
+    if (host) {
+      host.innerHTML = "";
+    }
+    this.keyboard = null;
+  },
+
+  /**
+   * Titles to offer above the keys, taken from the live search results.
+   *
+   * These are the catalogue's own movie and series names — never channel names,
+   * which belong to Live TV — so picking one always lands on something that
+   * exists.
+   */
+  catalogueSuggestions(query = "") {
+    const key = String(query || "")
+      .trim()
+      .toLowerCase();
+    if (key.length < 2) {
+      return [];
+    }
+    const seen = new Set();
+    const names = [];
+    (this.rows || []).forEach((row) => {
+      (row?.items || []).forEach((item) => {
+        const name = String(item?.name || item?.title || "").trim();
+        const normalized = name.toLowerCase();
+        if (!name || seen.has(normalized) || !normalized.includes(key)) {
+          return;
+        }
+        seen.add(normalized);
+        names.push(name);
+      });
+    });
+    return names.slice(0, 5);
+  },
+
   bindSearchInputEvents() {
     const input = this.container?.querySelector("#searchInput");
     if (!input || input.__boundSearchListeners) return;
@@ -1648,6 +1724,12 @@ export const SearchScreen = {
     input.addEventListener("keydown", async (event) => {
       if (event.keyCode !== 13) return;
       event.preventDefault();
+      // Enter on the field raises the app's own keyboard rather than Samsung's,
+      // which cannot show suggestions from this catalogue.
+      if (!this.keyboard) {
+        this.openSearchKeyboard();
+        return;
+      }
       this.cancelScheduledInputSearch();
       await this.runSearchFromInput(input, { autoFocusResults: true });
     });
@@ -1879,6 +1961,16 @@ export const SearchScreen = {
 
   async onKeyDown(event) {
     const code = Number(event?.keyCode || 0);
+    // While the keyboard is up it owns the remote; the rows behind it must not
+    // also move.
+    if (this.keyboard) {
+      const isBack = Platform.isBackEvent(event);
+      if (this.keyboard.handleKeyDown(event, { isBack })) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        return;
+      }
+    }
     if (this.suppressHoldMenuEnterUntilKeyUp && code === 13) {
       event.preventDefault?.();
       return;
@@ -2010,6 +2102,7 @@ export const SearchScreen = {
   },
 
   cleanup() {
+    this.closeSearchKeyboard?.();
     this.cancelScheduledRender();
     this.cancelPendingPosterHold();
     this.posterOptionsMenu = null;

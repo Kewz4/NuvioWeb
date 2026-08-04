@@ -21829,28 +21829,142 @@ html.legacy-webos .debug-console-log-frame {
   text-transform: uppercase;
 }
 
-/* The search field only exists to give Tizen's on-screen keyboard something to
-   attach to — focusing a real <input> is the only way to raise the IME. It is
-   parked off-screen so it never takes D-pad focus from the rails, and pulled
-   into view only while a search is being typed. */
-.iptv-search-input {
-  position: absolute;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+/* ==========================================================================
+   Virtual keyboard
+   --------------------------------------------------------------------------
+   Owned by the app rather than handed to Samsung's IME, so suggestions sit
+   directly above the keys and the whole thing follows the same focus model as
+   every other rail. Every letter row is ten keys wide, so a column stays a
+   column as you move down it.
+   ========================================================================== */
+
+.iptv-keyboard:empty {
+  display: none;
 }
 
-.iptv-searching .iptv-search-input {
-  position: static;
-  width: min(720px, 52vw);
-  height: auto;
-  margin-top: 14px;
-  padding: 14px 22px;
-  border: 3px solid var(--focus-color, #ffffff);
+.vk-root {
+  width: min(1180px, 78vw);
+  margin: 18px 0 6px;
+  padding: 24px 26px 20px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(38, 38, 38, 0.98), rgba(20, 20, 20, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+}
+
+.vk-field {
+  display: flex;
+  align-items: center;
+  min-height: 62px;
+  margin-bottom: 18px;
+  padding: 12px 22px;
   border-radius: 12px;
-  background: var(--card-bg, #1a1a1a);
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 31px;
   color: var(--text-color, #ffffff);
-  font-size: 26px;
-  opacity: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.vk-placeholder {
+  color: var(--text-secondary, #8d8d8d);
+}
+
+/* A blinking caret is the clearest signal that typing goes here. */
+.vk-caret {
+  display: inline-block;
+  width: 3px;
+  height: 32px;
+  margin-left: 4px;
+  background: var(--focus-color, #ffffff);
+  animation: vk-blink 1s steps(2, start) infinite;
+}
+
+@keyframes vk-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.vk-suggestions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.vk-suggestion {
+  flex: 0 1 auto;
+  max-width: 30%;
+  padding: 11px 22px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-color, #ffffff);
+  font-size: 23px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.vk-row {
+  display: flex;
+  gap: 9px;
+  margin-bottom: 9px;
+}
+
+.vk-actions {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.vk-key {
+  flex: 1 1 0;
+  padding: 15px 0;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-color, #ffffff);
+  font-size: 29px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    transform 0.12s ease;
+}
+
+.vk-action {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vk-action.primary {
+  background: rgba(var(--focus-color-rgb), 0.24);
+  border-color: rgba(var(--focus-color-rgb), 0.4);
+}
+
+/* Same highlight language as the channel rails: white fill, black text. */
+.vk-key.focused,
+.vk-suggestion.focused {
+  background: var(--focus-color, #ffffff);
+  color: #000000;
+  border-color: var(--focus-color, #ffffff);
+  outline: 4px solid rgba(var(--focus-color-rgb), 0.4);
+  outline-offset: 2px;
+  transform: scale(1.04);
+}
+
+/* The Search screen mounts the same keyboard as Live TV, so it inherits every
+   vk-* rule; this only positions the host. */
+.search-keyboard:empty {
+  display: none;
+}
+
+.search-keyboard {
+  display: flex;
+  justify-content: center;
 }

@@ -72,6 +72,13 @@ function buildConfigXml({ appId, packageId, version }) {
   <tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
   <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
   <tizen:privilege name="http://developer.samsung.com/privilege/productinfo"/>
+  <!-- Voice search runs through webkitSpeechRecognition, which the Tizen web
+       runtime gates behind the microphone privileges. Without these declared
+       the API exists, the button appears, and the first attempt fails with a
+       permission error the viewer can do nothing about. -->
+  <tizen:privilege name="http://tizen.org/privilege/recorder"/>
+  <tizen:privilege name="http://tizen.org/privilege/mediacapture"/>
+  <tizen:privilege name="http://developer.samsung.com/privilege/voicecontrol"/>
   <tizen:metadata key="http://samsung.com/tv/metadata/devel.api.version" value="5.0"/>
   <tizen:metadata key="http://samsung.com/tv/metadata/use.preview" value="bg_service"/>
   <tizen:metadata key="http://samsung.com/tv/metadata/prelaunch.support" value="true"/>
