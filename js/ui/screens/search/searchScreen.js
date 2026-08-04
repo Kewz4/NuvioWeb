@@ -7,15 +7,23 @@ import { watchProgressRepository } from "../../../data/repository/watchProgressR
 
 // Titles remembered for keyboard suggestions, across sessions.
 const SEARCH_TITLE_INDEX_KEY = "searchTitleIndex";
-const SEARCH_TITLE_INDEX_LIMIT = 4000;
+// Roughly 20k titles at ~30 bytes each is well under a megabyte, which the TV
+// carries comfortably and which covers a full addon catalogue several times
+// over.
+const SEARCH_TITLE_INDEX_LIMIT = 20000;
 // The catalogue sweep that fills the index for a profile that has never
 // searched. Sized to cover the popular rows without becoming a crawl.
 const SEARCH_SWEEP_STAMP_KEY = "searchTitleSweepAt";
 const SEARCH_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const SEARCH_SWEEP_MAX_CATALOGS = 10;
-const SEARCH_SWEEP_PAGES_PER_CATALOG = 4;
+// No catalogue cap: the point is to end up holding the whole catalogue, so the
+// sweep keeps paging until a catalogue runs dry. The page ceiling is only a
+// guard against a provider that never returns an empty page.
+const SEARCH_SWEEP_MAX_PAGES_PER_CATALOG = 40;
 const SEARCH_SWEEP_PAGE_SIZE = 100;
-const SEARCH_SWEEP_PAUSE_MS = 400;
+const SEARCH_SWEEP_PAUSE_MS = 250;
+// Where the last sweep stopped, so a session that ends early resumes rather
+// than starting from the first catalogue again.
+const SEARCH_SWEEP_CURSOR_KEY = "searchTitleSweepCursor";
 const SEARCH_SWEEP_START_DELAY_MS = 2500;
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
@@ -1801,7 +1809,7 @@ export const SearchScreen = {
       } catch (_) {
         // A full storage quota must never break searching.
       }
-    }, 1200);
+    }, 4000);
   },
 
   /**
@@ -1855,10 +1863,19 @@ export const SearchScreen = {
         });
       });
 
-      for (const section of sections.slice(0, SEARCH_SWEEP_MAX_CATALOGS)) {
-        for (let page = 0; page < SEARCH_SWEEP_PAGES_PER_CATALOG; page += 1) {
+      // Resume where the last run stopped, so an interrupted sweep still gets
+      // through the whole catalogue across a few visits.
+      const startAt = Math.min(
+        Number(LocalStore.get(SEARCH_SWEEP_CURSOR_KEY, 0) || 0),
+        sections.length
+      );
+      for (let index = startAt; index < sections.length; index += 1) {
+        const section = sections[index];
+        for (let page = 0; page < SEARCH_SWEEP_MAX_PAGES_PER_CATALOG; page += 1) {
           // Leaving Search, or starting a real search, ends the sweep at once.
           if (Router.getCurrent() !== "search" || token !== this.loadToken) {
+            LocalStore.set(SEARCH_SWEEP_CURSOR_KEY, index);
+            this.persistTitleIndex();
             return;
           }
           const result = await withTimeout(
@@ -1872,14 +1889,22 @@ export const SearchScreen = {
           ).catch(() => ({ status: "error" }));
 
           const items = result?.status === "success" ? result.data?.items || [] : [];
+          // An empty page means this catalogue is exhausted; a short one means
+          // it is the last. Either way there is nothing further to ask for.
           if (!items.length) {
             break;
           }
           this.indexRowTitles([{ items }]);
+          if (items.length < SEARCH_SWEEP_PAGE_SIZE) {
+            break;
+          }
           // A breath between pages so the sweep never monopolises the network.
           await new Promise((resolve) => setTimeout(resolve, SEARCH_SWEEP_PAUSE_MS));
         }
+        LocalStore.set(SEARCH_SWEEP_CURSOR_KEY, index + 1);
       }
+      // A full pass finished: start again from the top on the next interval.
+      LocalStore.set(SEARCH_SWEEP_CURSOR_KEY, 0);
       LocalStore.set(SEARCH_SWEEP_STAMP_KEY, Date.now());
     } catch (_) {
       // The index still fills from real searches; a failed sweep changes nothing.

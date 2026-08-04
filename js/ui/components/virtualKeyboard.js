@@ -215,7 +215,7 @@ export function createVirtualKeyboard({
     },
 
     setSuggestions(next = []) {
-      suggestions = (Array.isArray(next) ? next : []).filter(Boolean).slice(0, 5);
+      suggestions = (Array.isArray(next) ? next : []).filter(Boolean).slice(0, 4);
       clampCursor();
       render();
     },
