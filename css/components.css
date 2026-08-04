@@ -21959,14 +21959,19 @@ html.legacy-webos .debug-console-log-frame {
 }
 
 /* The Search screen mounts the same keyboard as Live TV, so it inherits every
-   vk-* rule; this only positions the host. */
-.search-keyboard:empty {
-  display: none;
-}
+   vk-* rule; this only positions the host.
 
+   The host lives inside .search-header — which is a grid of two 110px buttons
+   and the field — so it has to be told to span the whole row. Without this it
+   is laid out as a fourth grid item and squeezed into a 110px column. */
 .search-keyboard {
+  grid-column: 1 / -1;
   display: flex;
   justify-content: center;
+}
+
+.search-keyboard:empty {
+  display: none;
 }
 
 /* The shift key reads as engaged rather than merely focusable, so the case of

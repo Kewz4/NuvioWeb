@@ -8,6 +8,15 @@ import { watchProgressRepository } from "../../../data/repository/watchProgressR
 // Titles remembered for keyboard suggestions, across sessions.
 const SEARCH_TITLE_INDEX_KEY = "searchTitleIndex";
 const SEARCH_TITLE_INDEX_LIMIT = 4000;
+// The catalogue sweep that fills the index for a profile that has never
+// searched. Sized to cover the popular rows without becoming a crawl.
+const SEARCH_SWEEP_STAMP_KEY = "searchTitleSweepAt";
+const SEARCH_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const SEARCH_SWEEP_MAX_CATALOGS = 10;
+const SEARCH_SWEEP_PAGES_PER_CATALOG = 4;
+const SEARCH_SWEEP_PAGE_SIZE = 100;
+const SEARCH_SWEEP_PAUSE_MS = 400;
+const SEARCH_SWEEP_START_DELAY_MS = 2500;
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
 import { watchedItemsRepository } from "../../../data/repository/watchedItemsRepository.js";
@@ -444,7 +453,11 @@ export const SearchScreen = {
     this.layoutPrefs = LayoutPreferences.get();
     // Not awaited: suggestions must be ready early, but nothing on this screen
     // should wait on them.
-    void this.primeTitleIndex();
+    void this.primeTitleIndex().then(() => {
+      // Well after first paint: the catalogue sweep is a background nicety and
+      // must never delay the screen the viewer is looking at.
+      setTimeout(() => void this.sweepCatalogueTitles(), SEARCH_SWEEP_START_DELAY_MS);
+    });
     try {
       this.sidebarProfile = await getSidebarProfileState();
     } catch (err) {
@@ -1789,6 +1802,90 @@ export const SearchScreen = {
         // A full storage quota must never break searching.
       }
     }, 1200);
+  },
+
+  /**
+   * Walks the installed catalogues once and indexes every title it sees.
+   *
+   * This is what makes the very first search of a fresh profile useful: without
+   * it the index can only learn from searches already performed, so the first
+   * one — the one most in need of help — gets nothing. Several pages are pulled
+   * from each catalogue, which is where the bulk of the household's likely
+   * searches live.
+   *
+   * Deliberately slow and interruptible. It runs behind whatever the viewer is
+   * doing, one catalogue at a time, and stops the moment they leave the screen.
+   * A suggestion list is not worth competing with playback for bandwidth.
+   */
+  async sweepCatalogueTitles() {
+    if (this.catalogueSweepRunning) {
+      return;
+    }
+    const lastSweep = Number(LocalStore.get(SEARCH_SWEEP_STAMP_KEY, 0) || 0);
+    if (Date.now() - lastSweep < SEARCH_SWEEP_INTERVAL_MS) {
+      return;
+    }
+    this.catalogueSweepRunning = true;
+    const token = this.loadToken;
+
+    try {
+      const addons = await addonRepository.getInstalledAddons();
+      const sections = [];
+      (addons || []).forEach((addon) => {
+        (addon.catalogs || []).forEach((catalog) => {
+          const requiresSearch =
+            Array.isArray(catalog.extra) &&
+            catalog.extra.some(
+              (extra) =>
+                String(extra?.name || "")
+                  .trim()
+                  .toLowerCase() === "search" && Boolean(extra?.isRequired)
+            );
+          if (requiresSearch || !isSearchableCatalogType(catalog.apiType)) {
+            return;
+          }
+          sections.push({
+            addonBaseUrl: addon.baseUrl,
+            addonId: addon.id,
+            addonName: addon.displayName,
+            catalogId: catalog.id,
+            catalogName: catalog.name,
+            type: catalog.apiType
+          });
+        });
+      });
+
+      for (const section of sections.slice(0, SEARCH_SWEEP_MAX_CATALOGS)) {
+        for (let page = 0; page < SEARCH_SWEEP_PAGES_PER_CATALOG; page += 1) {
+          // Leaving Search, or starting a real search, ends the sweep at once.
+          if (Router.getCurrent() !== "search" || token !== this.loadToken) {
+            return;
+          }
+          const result = await withTimeout(
+            catalogRepository.getCatalog({
+              ...section,
+              skip: page * SEARCH_SWEEP_PAGE_SIZE,
+              supportsSkip: true
+            }),
+            getSearchCatalogTimeoutMs(),
+            { status: "error" }
+          ).catch(() => ({ status: "error" }));
+
+          const items = result?.status === "success" ? result.data?.items || [] : [];
+          if (!items.length) {
+            break;
+          }
+          this.indexRowTitles([{ items }]);
+          // A breath between pages so the sweep never monopolises the network.
+          await new Promise((resolve) => setTimeout(resolve, SEARCH_SWEEP_PAUSE_MS));
+        }
+      }
+      LocalStore.set(SEARCH_SWEEP_STAMP_KEY, Date.now());
+    } catch (_) {
+      // The index still fills from real searches; a failed sweep changes nothing.
+    } finally {
+      this.catalogueSweepRunning = false;
+    }
   },
 
   /** Restores the persisted index and seeds it from what is already on device. */
