@@ -2549,6 +2549,11 @@
     <string name="subtitle_generate_prompt">No hay ninguna fuente de subtítulos en %1$s para esta transmisión. ¿Generarlos?</string>
     <string name="subtitle_generate_progress">Generando subtítulos %1$d/%2$d… la reproducción continuará al terminar.</string>
     <string name="subtitle_generate_retrying">Terminando las últimas %1$d líneas…</string>
+    <string name="subtitle_style_preset">Tamaño</string>
+    <string name="subtitle_preset_normal">Normal</string>
+    <string name="subtitle_preset_large">Grande</string>
+    <string name="subtitle_preset_huge">Muy grande</string>
+    <string name="subtitle_preset_custom">Personalizado</string>
     <string name="subtitle_generate_working">Preparando subtítulos en %1$s</string>
     <string name="subtitle_generate_hold_note">La reproducción empieza apenas estén listos.</string>
     <string name="subtitle_generate_lines">%1$d de %2$d líneas</string>

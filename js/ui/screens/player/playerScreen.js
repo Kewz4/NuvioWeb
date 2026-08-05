@@ -69,6 +69,13 @@ import {
 } from "../../../core/player/subtitleCueLayout.js";
 import { shouldPrefetchNextSubtitles } from "./subtitlePrefetch.js";
 import {
+  SUBTITLE_PRESETS,
+  SUBTITLE_PRESET_CUSTOM,
+  applySubtitlePreset,
+  detectSubtitlePreset,
+  nextSubtitlePreset
+} from "../../../core/player/subtitlePresets.js";
+import {
   createProgressEstimator,
   formatRemaining,
   progressPercent
@@ -437,6 +444,15 @@ const SUBTITLE_LANGUAGE_UNKNOWN_KEY = "__unknown__";
 const SUBTITLE_LANGUAGE_GENERATE_KEY = "__generate_ai__";
 const SUBTITLE_TEXT_COLORS = ["#FFFFFF", "#D9D9D9", "#FFD700", "#00E5FF", "#FF5C5C", "#00FF88"];
 const SUBTITLE_OUTLINE_COLORS = ["#000000", "#FFFFFF", "#00E5FF", "#FF5C5C"];
+/** Localized name for a subtitle size preset. */
+function subtitlePresetLabel(presetId = "") {
+  if (presetId === SUBTITLE_PRESET_CUSTOM) {
+    return t("subtitle_preset_custom", {}, "Custom");
+  }
+  const preset = SUBTITLE_PRESETS.find((entry) => entry.id === presetId);
+  return preset ? t(preset.labelKey, {}, preset.fallback) : "";
+}
+
 const SUBTITLE_DELAY_MIN_MS = -60000;
 const SUBTITLE_DELAY_MAX_MS = 60000;
 // Generated tracks inherit the source file's timings, and the sources this
@@ -14565,6 +14581,11 @@ export const PlayerScreen = {
         value: formatSubtitleDelay(this.subtitleDelayMs)
       },
       {
+        id: "preset",
+        label: t("subtitle_style_preset", {}, "Size preset"),
+        value: subtitlePresetLabel(detectSubtitlePreset(style))
+      },
+      {
         id: "fontSize",
         label: t("subtitle_style_font_size", {}, "Font Size"),
         value: `${normalizeSubtitleFontSize(style.fontSize)}%`
@@ -14650,6 +14671,13 @@ export const PlayerScreen = {
         Number(this.subtitleDelayMs || 0) + delta * SUBTITLE_DELAY_STEP_MS,
         SUBTITLE_DELAY_MIN_MS,
         SUBTITLE_DELAY_MAX_MS
+      );
+    } else if (controlId === "preset" && delta !== 0) {
+      // One step covers size, weight and outline together. Everything else in
+      // the style — colour, position — is left exactly as the viewer set it.
+      Object.assign(
+        style,
+        applySubtitlePreset(style, nextSubtitlePreset(detectSubtitlePreset(style)))
       );
     } else if (controlId === "fontSize") {
       style.fontSize = normalizeSubtitleFontSize(
