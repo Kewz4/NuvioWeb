@@ -24,6 +24,19 @@ const ROOT_SIDEBAR_ITEMS = [
       '<path fill-rule="evenodd" d="M4 9a5 5 0 1110 0A5 5 0 014 9zm5-7a7 7 0 104.2 12.6.999.999 0 00.093.107l3 3a1 1 0 001.414-1.414l-3-3a.999.999 0 00-.107-.093A7 7 0 009 2z"/>'
   },
   {
+    // Not a destination: it picks something and plays it. Placed after Search
+    // because it answers the same question — "what do I watch?" — for anyone
+    // who would rather not type.
+    action: "surpriseMe",
+    route: "home",
+    isAction: true,
+    labelKey: "sidebar.surprise",
+    iconType: "svg",
+    viewBox: "0 0 24 24",
+    iconMarkup:
+      '<path d="M12 2 9.6 7.6 4 8.6l4 4.3-1 6 5-2.9 5 2.9-1-6 4-4.3-5.6-1L12 2Zm0 4.3 1.4 3.2 3.2.6-2.3 2.4.6 3.4L12 14.3l-2.9 1.6.6-3.4L7.4 10l3.2-.6L12 6.3Z"/>'
+  },
+  {
     action: "gotoLibrary",
     route: "library",
     labelKey: "sidebar.library",
@@ -268,6 +281,13 @@ export function activateLegacySidebarAction(action, currentRoute = "") {
   }
   if (normalizedAction === "gotoAccount") {
     Router.navigate("profileSelection");
+    return;
+  }
+
+  if (normalizedAction === "surpriseMe") {
+    // Handled by whichever screen is showing, because only it knows what is
+    // loaded; the sidebar's job is to offer the action, not to perform it.
+    Router.getCurrentScreen()?.onSurpriseMe?.();
     return;
   }
 

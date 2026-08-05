@@ -2522,6 +2522,11 @@
     <string name="catalog_order_layout_default">Predeterminada</string>
     <string name="catalog_order_layout_poster">Vertical</string>
     <string name="catalog_order_layout_landscape">Horizontal</string>
+    <string name="sidebar.surprise">Sorpréndeme</string>
+    <string name="family_list_row">Lista de la familia</string>
+    <string name="family_list_add">Agregar a la lista de la familia</string>
+    <string name="family_list_remove">Quitar de la lista de la familia</string>
+    <string name="family_list_added_by">Agregado por %1$s</string>
     <string name="iptv_search">Buscar canales</string>
     <string name="iptv_search_active">Buscar: %1$s</string>
     <string name="iptv_search_results">Resultados de búsqueda</string>

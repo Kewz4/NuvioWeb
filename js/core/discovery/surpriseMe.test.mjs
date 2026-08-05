@@ -90,3 +90,44 @@ test("a nonsense random value still returns a title", () => {
   assert.ok(pickSurprise(pool, { random: () => 1 }));
   assert.ok(pickSurprise(pool, { random: () => Number.NaN }));
 });
+
+test("a finished title is never offered", () => {
+  // The failure that kills the feature: pressing it and being handed the film
+  // you watched the credits of yesterday.
+  const pool = buildSurprisePool({
+    continueWatching: [
+      { id: "done", positionMs: 95, durationMs: 100 },
+      { id: "half", positionMs: 40, durationMs: 100 }
+    ]
+  });
+  assert.deepEqual(
+    pool.map((entry) => entry.id),
+    ["half"]
+  );
+});
+
+test("marked-watched wins over the progress fraction", () => {
+  // Someone pressing "mark watched" ten minutes in means they are done with it,
+  // whatever the player recorded.
+  const pool = buildSurprisePool({
+    continueWatching: [{ id: "abandoned", positionMs: 5, durationMs: 100, watched: true }]
+  });
+  assert.deepEqual(pool, []);
+});
+
+test("watched ids exclude catalogue titles that carry no progress of their own", () => {
+  const pool = buildSurprisePool({
+    catalog: [{ id: "seen" }, { id: "unseen" }],
+    watchedIds: ["seen"]
+  });
+  assert.deepEqual(
+    pool.map((entry) => entry.id),
+    ["unseen"]
+  );
+});
+
+test("a title with no duration is not assumed finished", () => {
+  // Live channels and anything the player never measured must stay eligible.
+  const pool = buildSurprisePool({ catalog: [{ id: "unmeasured", positionMs: 900000 }] });
+  assert.equal(pool.length, 1);
+});

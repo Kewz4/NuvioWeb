@@ -6,6 +6,13 @@ import { watchProgressRepository } from "../../../data/repository/watchProgressR
 import { watchedItemsRepository } from "../../../data/repository/watchedItemsRepository.js";
 import { watchedSeriesReconciliationService } from "../../../data/repository/watchedSeriesReconciliationService.js";
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
+import { WatchedItemsStore } from "../../../data/local/watchedItemsStore.js";
+import { getFamilyList } from "../../../data/local/familyListStore.js";
+import {
+  buildSurprisePool,
+  pickSurprise,
+  rememberSurprise
+} from "../../../core/discovery/surpriseMe.js";
 import {
   libraryRepository,
   LibrarySourceMode
@@ -25,6 +32,9 @@ import { AvatarRepository } from "../../../data/remote/supabase/avatarRepository
 import { Platform } from "../../../platform/index.js";
 import { isFastHorizontalNavigationEnabled } from "../../../platform/sharedKeys.js";
 import { LocalStore } from "../../../core/storage/localStore.js";
+
+// Recent Sorpréndeme picks, so pressing twice does not repeat.
+const SURPRISE_RECENT_KEY = "surpriseRecentIds";
 import { TMDB_API_KEY, YOUTUBE_PROXY_URL } from "../../../config.js";
 import { I18n } from "../../../i18n/index.js";
 import {
@@ -750,6 +760,58 @@ export function normalizeCollectionFolderItem(item, collectionMeta = null) {
     heroBackdropUrl: firstNonEmpty(item.heroBackdropUrl),
     heroVideoUrl: firstNonEmpty(item.heroVideoUrl),
     titleLogoUrl: firstNonEmpty(item.titleLogoUrl)
+  };
+}
+
+// The one row that is not a catalogue: everything in it was put there by hand,
+// by someone in the house, for someone else in the house.
+export const FAMILY_LIST_ROW_KEY = "nuvio_family_list";
+
+/**
+ * The shared list as a home row.
+ *
+ * Shaped exactly like a catalogue row so it sorts, hides and reorders through
+ * the same settings as every other row — a household that does not use it can
+ * turn it off without a special case existing anywhere.
+ *
+ * Returns null when empty: an always-present empty row would be a permanent
+ * reminder of a feature nobody asked for.
+ */
+function buildFamilyListHomeRow(entries = []) {
+  const items = (Array.isArray(entries) ? entries : [])
+    .map((entry) => {
+      const id = String(entry?.contentId || "").trim();
+      if (!id) {
+        return null;
+      }
+      return {
+        id,
+        type: entry?.contentType === "series" ? "series" : "movie",
+        name: entry?.title || id,
+        poster: entry?.poster || "",
+        background: entry?.background || "",
+        // Shown on the card so the list reads as a conversation rather than an
+        // anonymous pile: "Mamá put this here" is the entire point of it.
+        familyAddedBy: entry?.addedBy || ""
+      };
+    })
+    .filter(Boolean);
+  if (!items.length) {
+    return null;
+  }
+  return {
+    type: "movie",
+    addonId: "nuvio.family",
+    addonName: "Nuvio",
+    catalogId: FAMILY_LIST_ROW_KEY,
+    catalogName: t("family_list_row", {}, "Together list"),
+    homeCatalogKey: FAMILY_LIST_ROW_KEY,
+    homeCatalogDisableKey: FAMILY_LIST_ROW_KEY,
+    // Catalogue rows are one type each, so their title earns a " - Movies"
+    // suffix. This one holds whatever the household put in it, and the suffix
+    // would be a lie on half the contents.
+    suppressTypeSuffix: true,
+    result: { status: "success", data: { items } }
   };
 }
 
@@ -2357,7 +2419,11 @@ function renderLegacyCatalogRowsMarkup(rows = [], options = {}) {
 
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
-      : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
+      : formatCatalogRowTitle(
+          rowData.catalogName,
+          rowData.type,
+          showCatalogTypeSuffix && !rowData.suppressTypeSuffix
+        );
     const rowSubtitle =
       layoutMode === "classic" && showCatalogAddonName && rowData.addonName
         ? `from ${rowData.addonName}`
@@ -6573,6 +6639,52 @@ export const HomeScreen = {
   // Selecting Home while already on Home scrolls back to the top, matching the
   // Android TV app. Clears the remembered content focus so we land on the very
   // first row, resets the scroll position, then moves focus into the content.
+  /**
+   * Picks one title and opens it.
+   *
+   * Built from what is already loaded — the rows on screen, the resume list,
+   * the library — so it answers instantly. A button that thinks about it is a
+   * button nobody presses twice.
+   */
+  async onSurpriseMe() {
+    if (this.surpriseInFlight) {
+      return;
+    }
+    this.surpriseInFlight = true;
+    try {
+      const [continueWatching, library] = await Promise.all([
+        watchProgressRepository.getRecent(30).catch(() => []),
+        savedLibraryRepository.getAll?.().catch(() => []) ?? []
+      ]);
+      const catalog = (this.rows || []).flatMap((row) => row?.items || []);
+      const watchedIds = WatchedItemsStore.listForProfile(this.sidebarProfile?.id).map(
+        (item) => item.contentId
+      );
+
+      const pool = buildSurprisePool({ continueWatching, library, catalog, watchedIds });
+      const recentIds = LocalStore.get(SURPRISE_RECENT_KEY, []) || [];
+      const pick = pickSurprise(pool, { recentIds });
+      if (!pick) {
+        return;
+      }
+      LocalStore.set(SURPRISE_RECENT_KEY, rememberSurprise(recentIds, pick.id));
+
+      Router.navigate("detail", {
+        itemId: pick.id,
+        itemType: pick.type === "series" ? "series" : "movie",
+        fallbackTitle: pick.name || pick.id,
+        returnHomeOnBack: true,
+        // Straight into playback: choosing is the thing this replaces, so
+        // landing on a synopsis would put the decision right back.
+        autoOpenContinueWatching: true,
+        resumeProgressMs: pick.positionMs || 0,
+        resumeDurationMs: pick.durationMs || 0
+      });
+    } finally {
+      this.surpriseInFlight = false;
+    }
+  },
+
   onSidebarReselect() {
     const viewport = this.getHomeViewport();
     if (viewport) {
@@ -8578,12 +8690,27 @@ export const HomeScreen = {
       .map((collection) => buildCollectionHomeRow(collection))
       .filter((row) => Array.isArray(row?.result?.data?.items) && row.result.data.items.length);
     const catalogRows = (Array.isArray(rows) ? rows : []).filter(
-      (row) => row?.rowKind !== "collection"
+      (row) => row?.rowKind !== "collection" && row?.homeCatalogKey !== FAMILY_LIST_ROW_KEY
     );
+    // Rebuilt here rather than fetched with the catalogues: it is local, so it
+    // costs nothing, and every path that reassembles rows picks up an addition
+    // made moments ago on the detail screen without needing to know about it.
+    const familyRow = buildFamilyListHomeRow(getFamilyList());
     const rowMap = new Map(
-      [...catalogRows, ...collectionRows].map((row) => [row.homeCatalogKey, row])
+      [...catalogRows, ...collectionRows, ...(familyRow ? [familyRow] : [])].map((row) => [
+        row.homeCatalogKey,
+        row
+      ])
     );
     const allKeys = Array.from(rowMap.keys());
+    if (familyRow) {
+      // New rows are appended to the saved order, which for a row of hand-picked
+      // titles means it appears below twenty rows of algorithm and is never
+      // found. Placed at the top the first time it exists, and only that time —
+      // afterwards it is an ordinary entry the reorder screen owns, so moving it
+      // sticks.
+      HomeCatalogStore.ensureOrderKeys([FAMILY_LIST_ROW_KEY], { position: 0 });
+    }
     const orderedKeys = HomeCatalogStore.ensureOrderKeys(allKeys);
     const homeCatalogPrefs = HomeCatalogStore.get();
     const disabledKeys = new Set(homeCatalogPrefs.disabled || []);

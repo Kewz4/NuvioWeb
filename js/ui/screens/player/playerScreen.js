@@ -69,6 +69,12 @@ import {
 } from "../../../core/player/subtitleCueLayout.js";
 import { shouldPrefetchNextSubtitles } from "./subtitlePrefetch.js";
 import {
+  AMBIENT_ROTATE_MS,
+  ambientArtworkIndex,
+  buildAmbientArtwork,
+  shouldShowAmbient
+} from "../../../core/player/ambientScreen.js";
+import {
   SUBTITLE_PRESETS,
   SUBTITLE_PRESET_CUSTOM,
   applySubtitlePreset,
@@ -5053,6 +5059,7 @@ export const PlayerScreen = {
         </div>
 
         <div id="playerPauseOverlay" class="player-pause-overlay hidden"></div>
+        <div id="playerAmbient" class="player-ambient hidden" aria-hidden="true"></div>
 
         <div id="playerNextEpisodeCard" class="player-next-episode-card hidden"></div>
 
@@ -5163,6 +5170,7 @@ export const PlayerScreen = {
           seekPreview: uiRoot.querySelector("#playerSeekPreview"),
           seekFill: uiRoot.querySelector("#playerSeekFill"),
           pauseOverlay: uiRoot.querySelector("#playerPauseOverlay"),
+          ambient: uiRoot.querySelector("#playerAmbient"),
           nextEpisodeCard: uiRoot.querySelector("#playerNextEpisodeCard"),
           modalBackdrop: uiRoot.querySelector("#playerModalBackdrop"),
           subtitleDialog: uiRoot.querySelector("#playerSubtitleDialog"),
@@ -6378,9 +6386,14 @@ export const PlayerScreen = {
 
     if (this.canShowPauseOverlay() && !this.pauseOverlayVisible && !this.pauseOverlayTimer) {
       this.schedulePauseOverlay();
+      this.startAmbientWatch();
       return true;
     }
 
+    if (wasPaused) {
+      // Playback resumed: no ambient screen while there is a picture.
+      this.stopAmbientWatch();
+    }
     return !wasPaused;
   },
 
@@ -17121,6 +17134,121 @@ export const PlayerScreen = {
     });
   },
 
+  /* Ambient screen --------------------------------------------------------- */
+
+  /**
+   * Runs the ambient screen's clock.
+   *
+   * Started when playback pauses and stopped the moment anything else happens,
+   * so a playing TV carries no timer at all.
+   */
+  startAmbientWatch() {
+    this.stopAmbientWatch();
+    this.ambientIdleSince = Date.now();
+    // Ticks far more often than the rotation so the fade-in is prompt and
+    // the clock stays roughly right; the rotation itself is time-derived.
+    this.ambientTimer = setInterval(
+      () => this.syncAmbientScreen(),
+      Math.min(5000, AMBIENT_ROTATE_MS)
+    );
+  },
+
+  stopAmbientWatch() {
+    if (this.ambientTimer) {
+      clearInterval(this.ambientTimer);
+      this.ambientTimer = null;
+    }
+    this.ambientIdleSince = 0;
+    this.hideAmbientScreen();
+  },
+
+  /** Any remote press means someone is there, so the idle clock restarts. */
+  noteAmbientActivity() {
+    if (this.ambientVisible) {
+      this.hideAmbientScreen();
+    }
+    this.ambientIdleSince = Date.now();
+  },
+
+  syncAmbientScreen() {
+    const idleMs = this.ambientIdleSince ? Date.now() - this.ambientIdleSince : 0;
+    const wanted = shouldShowAmbient({
+      paused: Boolean(this.paused),
+      idleMs,
+      dialogOpen: Boolean(this.isDialogOpen?.()),
+      enabled: true
+    });
+    if (!wanted) {
+      this.hideAmbientScreen();
+      return;
+    }
+    this.showAmbientScreen();
+  },
+
+  showAmbientScreen() {
+    const overlay = this.uiRefs?.ambient;
+    if (!overlay) {
+      return;
+    }
+    if (!this.ambientArtwork?.length) {
+      this.ambientArtwork = buildAmbientArtwork({
+        current: {
+          background: this.params?.background || this.params?.playerBackdropUrl || "",
+          backdrop: this.params?.backdrop || ""
+        },
+        recent: []
+      });
+    }
+    // With no artwork the frozen frame is still better than a black rectangle,
+    // so the ambient screen simply does not appear.
+    if (!this.ambientArtwork.length) {
+      return;
+    }
+
+    const shownFor = Date.now() - (this.ambientShownAt || Date.now());
+    const index = ambientArtworkIndex(shownFor, this.ambientArtwork.length);
+    if (this.ambientVisible && index === this.ambientIndex) {
+      return;
+    }
+    if (!this.ambientVisible) {
+      this.ambientShownAt = Date.now();
+      this.ambientIndex = 0;
+    } else {
+      this.ambientIndex = index;
+    }
+
+    const clock = (() => {
+      try {
+        return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      } catch (_) {
+        return "";
+      }
+    })();
+    overlay.innerHTML = `
+      <img class="player-ambient-art" src="${escapeAttribute(this.ambientArtwork[this.ambientIndex])}" alt="" />
+      <div class="player-ambient-scrim"></div>
+      <div class="player-ambient-clock">${escapeHtml(clock)}</div>
+    `;
+    overlay.classList.remove("hidden");
+    this.ambientVisible = true;
+    // The controls have no business sitting over wallpaper.
+    this.setControlsVisible?.(false);
+  },
+
+  hideAmbientScreen() {
+    if (!this.ambientVisible) {
+      return;
+    }
+    this.ambientVisible = false;
+    this.ambientIndex = 0;
+    this.ambientShownAt = 0;
+    const overlay = this.uiRefs?.ambient;
+    if (overlay) {
+      overlay.classList.add("hidden");
+      overlay.innerHTML = "";
+    }
+  },
+
   /* Subtitle generation overlay ------------------------------------------- */
 
   /** Opens the overlay and resets its progress state. */
@@ -18974,6 +19102,18 @@ export const PlayerScreen = {
   async onKeyDown(event) {
     const keyCode = Number(event?.keyCode || 0);
     const isBackKey = isBackEvent(event);
+    // Someone is in the room. Restart the idle clock, and if the ambient screen
+    // is up, this press only dismisses it rather than also doing whatever it
+    // would normally do — the first press after walking back in should not
+    // seek or open a menu.
+    const dismissedAmbient = Boolean(this.ambientVisible);
+    this.noteAmbientActivity();
+    if (dismissedAmbient) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      this.setControlsVisible?.(true);
+      return;
+    }
     // While subtitles are being generated the episode is deliberately held, so
     // every other key would appear to do nothing. Back is the way out, and it
     // stops the generation rather than leaving the player — leaving would strand
@@ -19492,6 +19632,7 @@ export const PlayerScreen = {
   },
 
   cleanup() {
+    this.stopAmbientWatch?.();
     try {
       this.playerRouteActive = false;
       this.playerMountToken = Number(this.playerMountToken || 0) + 1;

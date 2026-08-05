@@ -162,12 +162,30 @@ export const HomeCatalogStore = {
     this.set({ rowLayouts }, options);
   },
 
-  ensureOrderKeys(keys) {
+  /**
+   * Adds any unknown keys to the saved row order.
+   *
+   * @param {string[]} keys
+   * @param {object} [options]
+   * @param {number} [options.position] where to insert keys the store has never
+   *   seen. Appended by default, which is right for a newly installed addon's
+   *   catalogues; a row the user is meant to notice can ask for the top instead.
+   *   Only ever applies on first sight — once a key is in the order, the reorder
+   *   screen owns its position and this leaves it alone.
+   */
+  ensureOrderKeys(keys, options = {}) {
     const current = this.get();
     const saved = unique(current.order || []).filter(Boolean);
     const savedSet = new Set(saved);
     const missing = unique(keys || []).filter((key) => key && !savedSet.has(key));
-    const next = [...saved, ...missing];
+    const position = Number(options?.position);
+    const next = Number.isFinite(position)
+      ? [
+          ...saved.slice(0, Math.max(0, position)),
+          ...missing,
+          ...saved.slice(Math.max(0, position))
+        ]
+      : [...saved, ...missing];
     if (!sameArray(current.order, next)) {
       this.set({ order: next }, { silentSync: true });
     }

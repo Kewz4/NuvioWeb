@@ -22019,3 +22019,64 @@ html.legacy-webos .debug-console-log-frame {
   outline: 3px solid rgba(var(--focus-color-rgb), 0.45);
   outline-offset: 2px;
 }
+
+/* ==========================================================================
+   Ambient screen
+   --------------------------------------------------------------------------
+   What a paused TV becomes after a few minutes. A frozen frame with a control
+   bar over it is both a burn-in risk and a screen that looks hung; artwork and
+   a clock is what a television in a living room should look like when nobody
+   is watching it.
+   ========================================================================== */
+
+.player-ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  background: #000000;
+  /* Slow enough to read as the room dimming rather than a transition. */
+  animation: player-ambient-in 1.2s ease both;
+}
+
+.player-ambient.hidden {
+  display: none;
+}
+
+@keyframes player-ambient-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.player-ambient-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Never at full brightness: this sits on screen for a long time. */
+  opacity: 0.55;
+}
+
+.player-ambient-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.45),
+    rgba(0, 0, 0, 0.1) 40%,
+    rgba(0, 0, 0, 0.75)
+  );
+}
+
+.player-ambient-clock {
+  position: absolute;
+  right: 72px;
+  bottom: 56px;
+  font-size: 92px;
+  font-weight: 200;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}

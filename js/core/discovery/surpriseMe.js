@@ -11,6 +11,8 @@
 // and the recent-picks memory stops the same answer twice in a row, which is
 // what makes a random button feel broken.
 
+import { isWatchProgressCompleted } from "../../domain/model/watchProgress.js";
+
 export const SOURCE_CONTINUE = "continue";
 export const SOURCE_LIBRARY = "library";
 export const SOURCE_CATALOG = "catalog";
@@ -27,6 +29,27 @@ export const SOURCE_WEIGHTS = Object.freeze({
 // Enough that a run of presses does not repeat, small enough that the pool of a
 // modest library is not exhausted into "nothing to suggest".
 export const RECENT_MEMORY = 12;
+
+/**
+ * Whether a title has already been seen through to the end.
+ *
+ * The single most damaging thing this button can do is offer something the
+ * household just finished — it reads as the app not knowing what they watch,
+ * and one such answer is enough to stop anyone pressing it again. Both signals
+ * are checked because they mean different things: the flag is someone saying
+ * "done", the fraction is the player noticing.
+ */
+function isFinished(entry = {}) {
+  if (entry?.watched === true || entry?.isWatched === true || entry?.completed === true) {
+    return true;
+  }
+  const positionMs = Number(entry?.positionMs || 0) || 0;
+  const durationMs = Number(entry?.durationMs || 0) || 0;
+  if (!durationMs) {
+    return false;
+  }
+  return isWatchProgressCompleted({ positionMs, durationMs });
+}
 
 function normalizeCandidate(entry = {}, source = SOURCE_CATALOG) {
   const id = String(entry?.id || entry?.contentId || "").trim();
@@ -55,11 +78,26 @@ function normalizeCandidate(entry = {}, source = SOURCE_CATALOG) {
  * Deliberately offline: a button that has to wait on the network is a button
  * nobody presses twice.
  */
-export function buildSurprisePool({ continueWatching = [], library = [], catalog = [] } = {}) {
-  const seen = new Set();
+export function buildSurprisePool({
+  continueWatching = [],
+  library = [],
+  catalog = [],
+  watchedIds = []
+} = {}) {
+  // Catalogue rows carry no watched state of their own, so the ids of anything
+  // marked watched are passed in separately; without them the button happily
+  // offers a film the household finished last month.
+  const seen = new Set(
+    (Array.isArray(watchedIds) ? watchedIds : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)
+  );
   const pool = [];
   const add = (entries, source) => {
     (Array.isArray(entries) ? entries : []).forEach((entry) => {
+      if (isFinished(entry)) {
+        return;
+      }
       const candidate = normalizeCandidate(entry, source);
       // First source wins: something both saved and half-watched is a
       // continue-watching item, and should carry that weight rather than
