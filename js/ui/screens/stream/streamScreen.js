@@ -1,4 +1,5 @@
 import { Router } from "../../navigation/router.js";
+import { isAddonErrorPlaceholder } from "./streamErrorPlaceholder.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
@@ -196,28 +197,6 @@ function isMagnetUrl(value = "") {
  * Both conditions are required. A rate-limit notice is worth hiding; a real
  * stream whose title happens to contain the word "error" is not.
  */
-function isAddonErrorPlaceholder(item = {}) {
-  const playable = item.url || item.externalUrl || item.ytId || item.infoHash || item.raw?.infoHash;
-  if (playable) {
-    return false;
-  }
-  const text = [item.name, item.title, item.description, item.addonName]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  if (!text) {
-    return false;
-  }
-  return (
-    // "429 - Too Many Requests", "503 - Service Unavailable", and similar.
-    /\b[45]\d{2}\b\s*[-:]/.test(text) ||
-    /too many requests|rate limit|unauthor|forbidden|timed? ?out|unavailable/.test(text) ||
-    // The cross most of them prefix the addon name with.
-    /\[\s*(?:❌|✖|✘|x)\s*\]/i.test(text) ||
-    /\b(?:no results|not found|failed|error)\b/.test(text)
-  );
-}
-
 function streamDebridIdentity(item = {}) {
   const resolve = item.clientResolve || item.raw?.clientResolve || {};
   const behaviorHints = item.behaviorHints || item.raw?.behaviorHints || {};

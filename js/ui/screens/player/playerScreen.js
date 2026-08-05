@@ -2323,7 +2323,7 @@ export const PlayerScreen = {
     this.subtitlePrefetchStarted = false;
     this.nextEpisodeTransitionMeta = null;
     this.subtitleDialogVisible = false;
-    this.subtitleDialogTab = "addons";
+    this.subtitleDialogTab = "builtIn";
     this.subtitleDialogIndex = 0;
     this.subtitleLanguageRailIndex = 0;
     this.subtitleOptionRailIndex = 0;
@@ -11388,12 +11388,8 @@ export const PlayerScreen = {
   },
 
   getSubtitleTabs() {
-    // The Built-in tab is deliberately absent. A stream's embedded tracks are
-    // unlabelled, frequently duplicated and almost never in Spanish, so listing
-    // them alongside the addon results turned one decision into three. The menu
-    // now offers only what is actually useful here: addon subtitles, and the AI
-    // track when no Spanish one exists. "Off" still lives in the language rail.
     return [
+      { id: "builtIn", label: t("subtitle_tab_builtin", {}, "Built-in") },
       { id: "addons", label: t("subtitle_tab_addons", {}, "Addons") },
       { id: "style", label: t("subtitle_tab_style", {}, "Style") },
       { id: "delay", label: t("subtitle_tab_delay", {}, "Delay") }
@@ -13428,11 +13424,7 @@ export const PlayerScreen = {
     if (cachedOptions) {
       return cachedOptions;
     }
-    // Only "Off" is taken from the built-in set; the embedded tracks themselves
-    // are not offered (see getSubtitleTabs for why).
-    const builtInEntries = this.getSubtitleEntries("builtIn").filter(
-      (entry) => entry?.id === "subtitle-off"
-    );
+    const builtInEntries = this.getSubtitleEntries("builtIn");
     const addonEntries = this.getSubtitleEntries("addons").filter((entry) => !entry?.disabled);
     const options = [];
 

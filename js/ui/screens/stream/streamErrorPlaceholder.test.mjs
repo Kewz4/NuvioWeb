@@ -1,28 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-// The predicate is defined inside the screen module, which pulls in the DOM.
-// It is small and pure, so it is mirrored here to lock the behaviour down; the
-// screen's copy is the one under review in code, this guards the rules.
-function isAddonErrorPlaceholder(item = {}) {
-  const playable = item.url || item.externalUrl || item.ytId || item.infoHash || item.raw?.infoHash;
-  if (playable) {
-    return false;
-  }
-  const text = [item.name, item.title, item.description, item.addonName]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  if (!text) {
-    return false;
-  }
-  return (
-    /\b[45]\d{2}\b\s*[-:]/.test(text) ||
-    /too many requests|rate limit|unauthor|forbidden|timed? ?out|unavailable/.test(text) ||
-    /\[\s*(?:\u274c|\u2716|\u2718|x)\s*\]/i.test(text) ||
-    /\b(?:no results|not found|failed|error)\b/.test(text)
-  );
-}
+import { isAddonErrorPlaceholder } from "./streamErrorPlaceholder.js";
 
 test("an addon reporting a rate limit is hidden", () => {
   assert.equal(
@@ -61,4 +40,47 @@ test("an ordinary unplayable entry with no error wording is left alone", () => {
   // Only entries that both cannot play AND say they failed are dropped.
   assert.equal(isAddonErrorPlaceholder({ name: "Dune 2160p HDR", description: "12.4 GB" }), false);
   assert.equal(isAddonErrorPlaceholder({}), false);
+});
+
+test("a notice linking to the addon's own repo is still a notice", () => {
+  // Seen in the wild: AIOStreams reports a rate limit and points the card at
+  // its GitHub page, so "it has a url" was never proof of a playable stream.
+  assert.equal(
+    isAddonErrorPlaceholder({
+      name: "[❌] AnimeTosho Auto",
+      title: "429 - Too Many Requests",
+      url: "https://github.com/Viren070/AIOStreams"
+    }),
+    true
+  );
+});
+
+test("funding and chat links do not rescue an error card either", () => {
+  ["https://discord.gg/abc", "https://ko-fi.com/someone", "https://patreon.com/someone"].forEach(
+    (url) => {
+      assert.equal(isAddonErrorPlaceholder({ name: "[❌] Addon failed", url }), true, url);
+    }
+  );
+});
+
+test("a real stream url on a normal host is left alone", () => {
+  assert.equal(
+    isAddonErrorPlaceholder({
+      name: "Error.Of.Judgment.2019.1080p",
+      url: "https://cdn.example.com/stream/abc.mkv"
+    }),
+    false
+  );
+});
+
+test("a magnet link is playable however the title reads", () => {
+  assert.equal(
+    isAddonErrorPlaceholder({ name: "[❌] failed", url: "magnet:?xt=urn:btih:abc" }),
+    false
+  );
+});
+
+test("an unparseable url falls through to the wording", () => {
+  assert.equal(isAddonErrorPlaceholder({ name: "[❌] 503 - Unavailable", url: "not a url" }), true);
+  assert.equal(isAddonErrorPlaceholder({ name: "The Matrix 1080p", url: "not a url" }), false);
 });
