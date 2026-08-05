@@ -184,6 +184,40 @@ function isMagnetUrl(value = "") {
     .startsWith("magnet:");
 }
 
+/**
+ * Whether an entry is an addon reporting a failure rather than offering a stream.
+ *
+ * Several addons — AIOStreams among them — return their own errors as ordinary
+ * stream entries: "[X] AnimeTosho / 429 - Too Many Requests". They occupy a row,
+ * they take focus, and selecting one does nothing, so from the sofa they read as
+ * broken results. They are recognised by having nothing playable behind them
+ * plus error wording, and dropped before the list is built.
+ *
+ * Both conditions are required. A rate-limit notice is worth hiding; a real
+ * stream whose title happens to contain the word "error" is not.
+ */
+function isAddonErrorPlaceholder(item = {}) {
+  const playable = item.url || item.externalUrl || item.ytId || item.infoHash || item.raw?.infoHash;
+  if (playable) {
+    return false;
+  }
+  const text = [item.name, item.title, item.description, item.addonName]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!text) {
+    return false;
+  }
+  return (
+    // "429 - Too Many Requests", "503 - Service Unavailable", and similar.
+    /\b[45]\d{2}\b\s*[-:]/.test(text) ||
+    /too many requests|rate limit|unauthor|forbidden|timed? ?out|unavailable/.test(text) ||
+    // The cross most of them prefix the addon name with.
+    /\[\s*(?:❌|✖|✘|x)\s*\]/i.test(text) ||
+    /\b(?:no results|not found|failed|error)\b/.test(text)
+  );
+}
+
 function streamDebridIdentity(item = {}) {
   const resolve = item.clientResolve || item.raw?.clientResolve || {};
   const behaviorHints = item.behaviorHints || item.raw?.behaviorHints || {};
@@ -379,6 +413,11 @@ function mergeStreamItems(existing = [], incoming = []) {
   const byKey = new Map();
   const push = (item) => {
     if (!item) {
+      return;
+    }
+    // An addon reporting its own failure is not a result. Filtered at the merge
+    // so it never reaches the list, the counts, or the source chips.
+    if (isAddonErrorPlaceholder(item)) {
       return;
     }
     const key = streamMergeKey(item);
