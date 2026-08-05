@@ -21985,3 +21985,18 @@ html.legacy-webos .debug-console-log-frame {
   background: rgba(var(--focus-color-rgb), 0.34);
   border-color: rgba(var(--focus-color-rgb), 0.55);
 }
+
+/* The per-row shape toggle in Reorder Home Catalogs. Wider than the arrows
+   because it carries a word as well as an icon — the icon alone does not say
+   whether a row is pinned or merely following the global setting. */
+.catalog-order-layout {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 14px;
+}
+
+.catalog-order-layout-label {
+  font-size: 0.82em;
+  letter-spacing: 0.02em;
+}

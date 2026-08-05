@@ -2820,6 +2820,10 @@
     <string name="iptv_category_religious">Religious</string>
     <string name="iptv_category_general">General channels</string>
     <string name="player_live_badge">Live</string>
+    <string name="catalog_order_layout_hint">Card shape for this row</string>
+    <string name="catalog_order_layout_default">Default</string>
+    <string name="catalog_order_layout_poster">Poster</string>
+    <string name="catalog_order_layout_landscape">Wide</string>
     <string name="iptv_search">Search channels</string>
     <string name="iptv_search_active">Search: %1$s</string>
     <string name="iptv_search_results">Search results</string>

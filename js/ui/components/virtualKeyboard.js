@@ -261,6 +261,29 @@ export function createVirtualKeyboard({
         activate();
         return true;
       }
+
+      // A real keyboard — USB, Bluetooth, or a phone acting as one — should type
+      // straight into the field rather than being made to drive the on-screen
+      // keys one arrow at a time. The grid stays in sync so the two can be used
+      // interchangeably mid-word.
+      if (key === "Backspace" || code === 8) {
+        setText(text.slice(0, -1));
+        return true;
+      }
+      if (key === "Delete" || code === 46) {
+        setText("");
+        return true;
+      }
+      if (key === "Escape" || code === 27) {
+        onCancel();
+        return true;
+      }
+      // Exactly one character, and no modifier: that is a keystroke meant as
+      // text, not a shortcut.
+      if (key.length === 1 && !event?.ctrlKey && !event?.altKey && !event?.metaKey) {
+        setText(text + key);
+        return true;
+      }
       return false;
     },
 

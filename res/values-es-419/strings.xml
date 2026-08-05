@@ -2518,6 +2518,10 @@
     <string name="iptv_category_religious">Religiosos</string>
     <string name="iptv_category_general">Canales generales</string>
     <string name="player_live_badge">En vivo</string>
+    <string name="catalog_order_layout_hint">Forma de las tarjetas de esta fila</string>
+    <string name="catalog_order_layout_default">Predeterminada</string>
+    <string name="catalog_order_layout_poster">Vertical</string>
+    <string name="catalog_order_layout_landscape">Horizontal</string>
     <string name="iptv_search">Buscar canales</string>
     <string name="iptv_search_active">Buscar: %1$s</string>
     <string name="iptv_search_results">Resultados de búsqueda</string>

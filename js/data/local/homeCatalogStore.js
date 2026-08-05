@@ -2,10 +2,18 @@ import { createProfileScopedStore } from "./profileScopedStore.js";
 
 const KEY = "homeCatalogPrefs";
 
+export const ROW_LAYOUT_POSTER = "poster";
+export const ROW_LAYOUT_LANDSCAPE = "landscape";
+const ROW_LAYOUTS = [ROW_LAYOUT_POSTER, ROW_LAYOUT_LANDSCAPE];
+
 const DEFAULTS = {
   order: [],
   disabled: [],
-  customTitles: {}
+  customTitles: {},
+  // Per-row card shape. Absent means the row follows the global setting, so
+  // this only ever records a deliberate choice rather than a copy of the
+  // default that would then stop tracking it.
+  rowLayouts: {}
 };
 
 function unique(array) {
@@ -33,6 +41,20 @@ function normalizeCustomTitles(value = {}) {
   }, {});
 }
 
+function normalizeRowLayouts(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.entries(value).reduce((accumulator, [key, layout]) => {
+    const normalizedKey = String(key || "").trim();
+    const normalizedLayout = String(layout || "").trim();
+    if (normalizedKey && ROW_LAYOUTS.includes(normalizedLayout)) {
+      accumulator[normalizedKey] = normalizedLayout;
+    }
+    return accumulator;
+  }, {});
+}
+
 function sameObject(left = {}, right = {}) {
   const leftKeys = Object.keys(left || {}).sort();
   const rightKeys = Object.keys(right || {}).sort();
@@ -46,7 +68,8 @@ function normalizeHomeCatalogPrefs(value = {}) {
   return {
     order: unique(Array.isArray(value.order) ? value.order : []),
     disabled: unique(Array.isArray(value.disabled) ? value.disabled : []),
-    customTitles: normalizeCustomTitles(value.customTitles || value.custom_titles)
+    customTitles: normalizeCustomTitles(value.customTitles || value.custom_titles),
+    rowLayouts: normalizeRowLayouts(value.rowLayouts || value.row_layouts)
   };
 }
 
@@ -83,7 +106,8 @@ export const HomeCatalogStore = {
     if (
       sameArray(current.order, next.order) &&
       sameArray(current.disabled, next.disabled) &&
-      sameObject(current.customTitles, next.customTitles)
+      sameObject(current.customTitles, next.customTitles) &&
+      sameObject(current.rowLayouts, next.rowLayouts)
     ) {
       return;
     }
@@ -115,6 +139,27 @@ export const HomeCatalogStore = {
 
   setCustomTitles(customTitles, options = {}) {
     this.set({ customTitles: normalizeCustomTitles(customTitles) }, options);
+  },
+
+  /** The shape chosen for a row, or "" when it follows the global setting. */
+  getRowLayout(rowKey = "") {
+    const key = String(rowKey || "").trim();
+    return key ? String(this.get().rowLayouts?.[key] || "") : "";
+  },
+
+  /** Sets a row's shape; an empty layout hands the row back to the default. */
+  setRowLayout(rowKey = "", layout = "", options = {}) {
+    const key = String(rowKey || "").trim();
+    if (!key) {
+      return;
+    }
+    const rowLayouts = { ...(this.get().rowLayouts || {}) };
+    if (ROW_LAYOUTS.includes(layout)) {
+      rowLayouts[key] = layout;
+    } else {
+      delete rowLayouts[key];
+    }
+    this.set({ rowLayouts }, options);
   },
 
   ensureOrderKeys(keys) {

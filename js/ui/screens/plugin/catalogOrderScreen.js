@@ -1,4 +1,5 @@
 import { Router } from "../../navigation/router.js";
+import { I18n } from "../../../i18n/index.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { HomeCatalogStore } from "../../../data/local/homeCatalogStore.js";
@@ -20,6 +21,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function t(key, params = {}, fallback = "") {
+  return I18n.t(key, params, { fallback: fallback || key });
 }
 
 export const CatalogOrderScreen = {
@@ -139,6 +144,13 @@ export const CatalogOrderScreen = {
 
   async render() {
     this.model = await this.collectModel();
+    // Read once per render rather than per card: the store deserialises on
+    // every get, and this screen lists every catalogue the household has.
+    const rowLayouts = HomeCatalogStore.get().rowLayouts || {};
+    this.model.items = this.model.items.map((item) => ({
+      ...item,
+      rowLayout: rowLayouts[item.key] || ""
+    }));
     this.rowColumns = new Map();
     const itemsHtml = this.model.items
       .map((item, index) => {
@@ -150,6 +162,7 @@ export const CatalogOrderScreen = {
           cols.push(1);
         }
         cols.push(2);
+        cols.push(3);
         this.setRowColumns(index, cols);
 
         return `
@@ -177,6 +190,25 @@ export const CatalogOrderScreen = {
                     data-action="toggle"
                     data-disable-key="${escapeHtml(item.disableKey)}"
                     tabindex="-1">${item.isDisabled ? "Enable" : "Disable"}</button>
+            <button type="button"
+                    class="catalog-order-action catalog-order-focusable catalog-order-layout"
+                    data-row="${index}"
+                    data-col="3"
+                    data-action="layout"
+                    data-key="${escapeHtml(item.key)}"
+                    tabindex="-1"
+                    title="${escapeHtml(t("catalog_order_layout_hint", {}, "Card shape for this row"))}">
+              <span class="material-icons" aria-hidden="true">${
+                item.rowLayout === "landscape" ? "crop_16_9" : "crop_portrait"
+              }</span>
+              <span class="catalog-order-layout-label">${escapeHtml(
+                item.rowLayout === "landscape"
+                  ? t("catalog_order_layout_landscape", {}, "Wide")
+                  : item.rowLayout === "poster"
+                    ? t("catalog_order_layout_poster", {}, "Poster")
+                    : t("catalog_order_layout_default", {}, "Default")
+              )}</span>
+            </button>
           </div>
         </article>
       `;
@@ -221,7 +253,27 @@ export const CatalogOrderScreen = {
       await this.moveItem(String(current.dataset.key || ""), 1);
     } else if (action === "toggle") {
       await this.toggleItem(String(current.dataset.disableKey || ""));
+    } else if (action === "layout") {
+      await this.cycleRowLayout(String(current.dataset.key || ""));
     }
+  },
+
+  /**
+   * Cycles a row between following the global setting, poster, and wide.
+   *
+   * Three states rather than two so a row can be handed back to the global
+   * preference: with only poster/wide, flipping the app-wide setting would stop
+   * moving any row that had ever been touched here.
+   */
+  async cycleRowLayout(rowKey = "") {
+    const key = String(rowKey || "").trim();
+    if (!key) {
+      return;
+    }
+    const current = HomeCatalogStore.getRowLayout(key);
+    const next = current === "" ? "poster" : current === "poster" ? "landscape" : "";
+    HomeCatalogStore.setRowLayout(key, next);
+    await this.render();
   },
 
   moveFocus(deltaRow, deltaCol = 0) {

@@ -35,6 +35,10 @@ export function renderModernHomeLayout({
   showPosterLabels = true,
   showCatalogTypeSuffix = true,
   preferLandscapePosters = false,
+  // rowKey -> "poster" | "landscape". A row absent here follows the global
+  // setting, so switching that setting still moves every row the viewer has
+  // not deliberately pinned.
+  rowLayouts = {},
   focusedRowKey = "",
   focusedItemIndex = -1,
   expandFocusedPoster = false,
@@ -101,7 +105,7 @@ export function renderModernHomeLayout({
           showPosterLabels,
           "modern",
           expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
-          preferLandscapePosters,
+          rowLayouts[rowKey] ? rowLayouts[rowKey] === "landscape" : preferLandscapePosters,
           deferRowImages,
           watchedTitleIds
         )

@@ -8824,6 +8824,7 @@ export const HomeScreen = {
         showPosterLabels,
         showCatalogTypeSuffix,
         preferLandscapePosters: modernLandscapePostersEnabled,
+        rowLayouts: HomeCatalogStore.get().rowLayouts || {},
         focusedRowKey: focusState?.rowKey || "",
         focusedItemIndex: Number.isFinite(focusState?.itemIndex) ? focusState.itemIndex : -1,
         expandFocusedPoster,

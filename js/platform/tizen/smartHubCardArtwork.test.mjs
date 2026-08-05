@@ -39,13 +39,13 @@ test("a resume bar is drawn only when there is progress to show", () => {
   assert.ok(withProgress.includes("b5a54b6d"), "track");
   assert.ok(withProgress.includes("81edc0a7"), "fill");
   // 50% of the 92%-wide track.
-  assert.ok(withProgress.includes("/46px4p/"), withProgress);
+  assert.ok(withProgress.includes("/45px5p/"), withProgress);
 });
 
 test("progress is clamped so the bar cannot overrun or vanish", () => {
-  assert.ok(buildCardArtworkUrl({ artworkUuid: "a", progressPercent: 400 }).includes("/92px4p/"));
+  assert.ok(buildCardArtworkUrl({ artworkUuid: "a", progressPercent: 400 }).includes("/90px5p/"));
   // A barely-started title still shows a sliver rather than nothing.
-  assert.ok(buildCardArtworkUrl({ artworkUuid: "a", progressPercent: 0.4 }).includes("/1px4p/"));
+  assert.ok(buildCardArtworkUrl({ artworkUuid: "a", progressPercent: 0.4 }).includes("/1px5p/"));
   assert.equal(
     buildCardArtworkUrl({ artworkUuid: "a", progressPercent: 0 }).includes("81edc0a7"),
     false

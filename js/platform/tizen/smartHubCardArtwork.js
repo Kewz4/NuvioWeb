@@ -25,16 +25,22 @@ export const CARD_HEIGHT = 270;
 // card size. `p` is Uploadcare's percent unit; dimensions separate with `x`,
 // coordinates with a comma.
 const SCRIM = { uuid: "c3ed7d64-bbe2-4914-8351-4224adbd5f5b", dims: "100px100p", at: "0p,0p" };
-const PROGRESS_TRACK = { uuid: "b5a54b6d-8ebc-4fdb-a480-60dfa96ed1d7", at: "4p,88p" };
-const PROGRESS_FILL = { uuid: "81edc0a7-aa38-4d2d-b1ed-2717f894c19a", at: "4p,88p" };
-const PROGRESS_WIDTH_PERCENT = 92;
+// Kept clear of the bottom edge. At 88% the bar rendered correctly in the image
+// and was still invisible on the TV, because the launcher crops the lowest
+// strip of a tile and lays its own chrome over it — the badge at 64% survived,
+// the bar flush against the edge did not.
+const PROGRESS_TRACK = { uuid: "b5a54b6d-8ebc-4fdb-a480-60dfa96ed1d7", at: "5p,74p" };
+const PROGRESS_FILL = { uuid: "81edc0a7-aa38-4d2d-b1ed-2717f894c19a", at: "5p,74p" };
+const PROGRESS_WIDTH_PERCENT = 90;
+// Thicker than a web progress bar needs to be: this is read from a sofa.
+const PROGRESS_HEIGHT_PERCENT = 5;
 
 export const SMART_HUB_CARD_BADGES = Object.freeze({
   continueWatching: Object.freeze({
     uuid: "40567a83-8d43-49ea-a686-8b79a06b73f9",
     dims: "37px13p",
     // Sits higher than the others to leave room for the progress bar below it.
-    at: "4p,64p"
+    at: "5p,52p"
   }),
   paraTi: Object.freeze({
     uuid: "b140891e-a0db-4a19-b2ca-bc54d104eb0c",
@@ -80,8 +86,11 @@ export function buildCardArtworkUrl({
   if (Number.isFinite(percent) && percent > 0) {
     const clamped = Math.max(1, Math.min(100, Math.round(percent)));
     const fillWidth = Math.max(1, Math.round((clamped / 100) * PROGRESS_WIDTH_PERCENT));
-    url += overlay({ ...PROGRESS_TRACK, dims: `${PROGRESS_WIDTH_PERCENT}px4p` });
-    url += overlay({ ...PROGRESS_FILL, dims: `${fillWidth}px4p` });
+    url += overlay({
+      ...PROGRESS_TRACK,
+      dims: `${PROGRESS_WIDTH_PERCENT}px${PROGRESS_HEIGHT_PERCENT}p`
+    });
+    url += overlay({ ...PROGRESS_FILL, dims: `${fillWidth}px${PROGRESS_HEIGHT_PERCENT}p` });
   }
   // A filename is appended so the URL ends in .jpg: Samsung's preview only
   // accepts image URLs with a recognised extension.

@@ -7,10 +7,12 @@ import { watchProgressRepository } from "../../../data/repository/watchProgressR
 
 // Titles remembered for keyboard suggestions, across sessions.
 const SEARCH_TITLE_INDEX_KEY = "searchTitleIndex";
-// Roughly 20k titles at ~30 bytes each is well under a megabyte, which the TV
-// carries comfortably and which covers a full addon catalogue several times
-// over.
-const SEARCH_TITLE_INDEX_LIMIT = 20000;
+// No cap. Every title the sweep sees is kept, because a suggestion index that
+// silently forgets is worse than a large one: the title dropped is always the
+// one nobody searched for recently, which is exactly the one worth suggesting.
+// Storage is bounded by the device instead — a quota error sheds the oldest
+// tenth and retries, so the index grows to whatever the TV will actually hold.
+const SEARCH_TITLE_SHED_FRACTION = 0.1;
 // The catalogue sweep that fills the index for a profile that has never
 // searched. Sized to cover the popular rows without becoming a crawl.
 const SEARCH_SWEEP_STAMP_KEY = "searchTitleSweepAt";
@@ -1776,11 +1778,6 @@ export const SearchScreen = {
         this.titleIndex.push({ name, key });
       });
     });
-    // Bounded so a long session cannot grow it without limit.
-    if (this.titleIndex.length > SEARCH_TITLE_INDEX_LIMIT) {
-      this.titleIndex = this.titleIndex.slice(-SEARCH_TITLE_INDEX_LIMIT);
-      this.titleIndexSeen = new Set(this.titleIndex.map((entry) => entry.key));
-    }
     if (this.titleIndex.length !== before) {
       this.persistTitleIndex();
     }
@@ -1801,13 +1798,23 @@ export const SearchScreen = {
     // serialising four thousand titles there would show up as jank.
     this.persistIndexTimer = setTimeout(() => {
       this.persistIndexTimer = null;
-      try {
-        LocalStore.set(
-          SEARCH_TITLE_INDEX_KEY,
-          (this.titleIndex || []).slice(-SEARCH_TITLE_INDEX_LIMIT).map((entry) => entry.name)
-        );
-      } catch (_) {
-        // A full storage quota must never break searching.
+      // Shed and retry rather than cap up front: the device decides how much it
+      // can hold, and on a TV with room that is the whole catalogue.
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        try {
+          LocalStore.set(
+            SEARCH_TITLE_INDEX_KEY,
+            (this.titleIndex || []).map((entry) => entry.name)
+          );
+          return;
+        } catch (_) {
+          const shed = Math.max(1, Math.floor(this.titleIndex.length * SEARCH_TITLE_SHED_FRACTION));
+          this.titleIndex = this.titleIndex.slice(shed);
+          this.titleIndexSeen = new Set(this.titleIndex.map((entry) => entry.key));
+          if (!this.titleIndex.length) {
+            return;
+          }
+        }
       }
     }, 4000);
   },
