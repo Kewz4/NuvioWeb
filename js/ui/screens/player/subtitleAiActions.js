@@ -10,12 +10,15 @@ import { parseSubtitleCues } from "../../../core/player/subtitleCueParser.js";
 import { runSubtitleAutoSync, isNonDialogueCue } from "../../../core/player/subtitleAutoSync.js";
 import {
   DEFAULT_SUBTITLE_TRANSLATION_LANGUAGE,
+  getCachedTranslation,
   cuesToVtt,
   subtitleTranslationLanguageLabel,
   translateSubtitleCues
 } from "../../../core/player/subtitleAiTranslator.js";
 import { subtitleAiProviderLabel } from "../../../core/player/subtitleAiClient.js";
 import { nextBuiltInGroqKey } from "../../../core/player/subtitleAiKeyPool.js";
+import { subtitleRepository } from "../../../data/repository/subtitleRepository.js";
+import { pickPrefetchSource } from "./subtitlePrefetch.js";
 
 const SOURCE_CUE_BUFFER_LIMIT = 20;
 const SUBTITLE_DELAY_MIN_MS = -60000;
@@ -591,6 +594,82 @@ export async function generateTargetLanguageSubtitles(screen) {
       screen.hideSubtitleGenerationOverlay?.();
       screen.releasePlaybackAfterSubtitleGeneration?.();
     }
+  }
+}
+
+/**
+ * Translates the next episode's subtitles in the background.
+ *
+ * Nothing is applied and nothing is shown: the result lands in the translator's
+ * cache, keyed by the subtitle URL, so when the viewer reaches that episode the
+ * track is already complete and playback never pauses at all.
+ *
+ * Every failure here is silent by design. This is speculative work the viewer
+ * did not ask for, so a missing subtitle list, a rate limit, or a provider
+ * outage should leave no trace — the episode simply generates on demand as it
+ * always did.
+ *
+ * @returns {Promise<boolean>} true when a track was prepared and cached.
+ */
+export async function prefetchNextEpisodeSubtitles(screen, nextEpisode) {
+  const settings = PlayerSettingsStore.get();
+  const targetLanguage = settings.subtitleAiTargetLanguage || DEFAULT_SUBTITLE_TRANSLATION_LANGUAGE;
+  const { apiKey } = resolveSubtitleAiCredentials(settings);
+  if (!apiKey || !nextEpisode) {
+    return false;
+  }
+
+  const stillSameTitle = pinToCurrentTitle(screen);
+  const lookup = screen.buildSubtitleLookupContext?.() || {};
+  if (!lookup.id || !lookup.type) {
+    return false;
+  }
+
+  try {
+    const subtitles = await subtitleRepository.getSubtitles(
+      lookup.type,
+      lookup.id,
+      nextEpisode.id || null,
+      {
+        season: Number(nextEpisode.season ?? lookup.season) || lookup.season,
+        episode: Number(nextEpisode.episode ?? 0) || null,
+        title: lookup.title,
+        year: lookup.year
+      }
+    );
+    const source = pickPrefetchSource(subtitles, targetLanguage);
+    if (!source || !stillSameTitle()) {
+      return false;
+    }
+
+    // Already prepared, by this or an earlier run.
+    if (getCachedTranslation(source.url, targetLanguage)) {
+      return true;
+    }
+
+    const body = await downloadSubtitleText(screen, source.url);
+    const cues = parseSubtitleCues(body, { sourceUrl: source.url });
+    if (!cues.length || !stillSameTitle()) {
+      return false;
+    }
+
+    await withCredentialFallback(settings, (credentials) =>
+      translateSubtitleCues({
+        cues,
+        provider: credentials.provider,
+        apiKey: credentials.apiKey,
+        targetLanguage,
+        sourceUrl: source.url,
+        // No progress reporting: the viewer is watching something else and must
+        // not be told about work they did not request.
+        onProgress: () => {},
+        // Yields to a foreground generation, which the viewer IS waiting on.
+        shouldStop: () => !stillSameTitle() || Boolean(screen.subtitleGenerationRunning)
+      })
+    );
+    return Boolean(getCachedTranslation(source.url, targetLanguage));
+  } catch (_) {
+    return false;
   }
 }
 

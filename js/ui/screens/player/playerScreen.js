@@ -67,6 +67,7 @@ import {
   getSubtitleAssAlignmentSettings,
   parseVttCueLayout
 } from "../../../core/player/subtitleCueLayout.js";
+import { shouldPrefetchNextSubtitles } from "./subtitlePrefetch.js";
 import {
   createProgressEstimator,
   formatRemaining,
@@ -76,6 +77,7 @@ import {
   activeSubtitleAiKey,
   clearAutoSyncSourceCues,
   generateTargetLanguageSubtitles,
+  prefetchNextEpisodeSubtitles,
   hasSubtitleInTargetLanguage,
   pickTranslationSource,
   recordAutoSyncSourceCue,
@@ -2285,6 +2287,8 @@ export const PlayerScreen = {
     // token and will not touch this one, but the flag itself is shared state
     // and must not carry over or the new title looks permanently "generating".
     this.subtitleGenerationRunning = false;
+    // A new title means a new "next episode" to prepare.
+    this.subtitlePrefetchStarted = false;
     this.nextEpisodeTransitionMeta = null;
     this.subtitleDialogVisible = false;
     this.subtitleDialogTab = "addons";
@@ -8497,6 +8501,7 @@ export const PlayerScreen = {
         this.scheduleLoadingCompletionCheck(playbackPresented ? 0 : 120);
       }
       this.markPlaybackProgress();
+      this.maybePrefetchNextEpisodeSubtitles();
       this.attemptPendingPlaybackRestore();
       this.refreshWebOsEmbeddedHtmlSubtitleOverlayIfNeeded();
       this.renderHtmlSubtitleOverlayAtCurrentTime();
@@ -17015,6 +17020,35 @@ export const PlayerScreen = {
     PlayerController.resume();
     this.renderControlButtons?.();
     this.subtitleGenerationResumeTimer = setTimeout(tryResume, 250);
+  },
+
+  /**
+   * Starts preparing the next episode's Spanish subtitles, once.
+   *
+   * Called from the playback tick, so the guard has to be cheap: everything
+   * expensive sits behind shouldPrefetchNextSubtitles, which is a few numeric
+   * comparisons, and the flag makes every call after the first a no-op.
+   */
+  maybePrefetchNextEpisodeSubtitles() {
+    const nextEpisode = this.resolveNextEpisodeInfo?.();
+    if (
+      !shouldPrefetchNextSubtitles({
+        positionSeconds: this.getPlaybackCurrentSeconds?.() || 0,
+        durationSeconds: this.getPlaybackDurationSeconds?.() || 0,
+        hasNextEpisode: Boolean(nextEpisode?.videoId || nextEpisode?.id),
+        alreadyStarted: Boolean(this.subtitlePrefetchStarted),
+        generationRunning: Boolean(this.subtitleGenerationRunning)
+      })
+    ) {
+      return;
+    }
+    this.subtitlePrefetchStarted = true;
+    const episode =
+      (this.episodes || []).find(
+        (entry) => String(entry?.id || "") === String(nextEpisode.videoId || nextEpisode.id || "")
+      ) || nextEpisode;
+    // Never awaited: this is speculative work behind the episode being watched.
+    void prefetchNextEpisodeSubtitles(this, episode);
   },
 
   /* Subtitle generation overlay ------------------------------------------- */
