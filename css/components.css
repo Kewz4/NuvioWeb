@@ -22000,3 +22000,22 @@ html.legacy-webos .debug-console-log-frame {
   font-size: 0.82em;
   letter-spacing: 0.02em;
 }
+
+/* Cast names on the pause overlay are buttons now, not labels. They keep the
+   chip look so the overlay reads the same, and gain the app's standard focus
+   treatment so it is obvious they can be selected. */
+.player-pause-cast-chip {
+  border: 2px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.player-pause-cast-chip.focused,
+.player-pause-cast-chip:focus {
+  background: var(--focus-color, #ffffff);
+  color: #000000;
+  border-color: var(--focus-color, #ffffff);
+  outline: 3px solid rgba(var(--focus-color-rgb), 0.45);
+  outline-offset: 2px;
+}

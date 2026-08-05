@@ -566,7 +566,17 @@ function extractPauseOverlayCast(data = {}) {
       return;
     }
     seen.add(key);
-    result.push({ name, character });
+    result.push({
+      name,
+      character,
+      // The cast screen resolves a person by id when there is one and by name
+      // otherwise, so both are carried rather than only what is displayed.
+      id: typeof entry === "string" ? "" : String(entry?.id || entry?.castId || "").trim(),
+      photo:
+        typeof entry === "string"
+          ? ""
+          : String(entry?.photo || entry?.profileImage || entry?.image || "").trim()
+    });
   };
 
   collections.forEach((collection) => {
@@ -6493,9 +6503,16 @@ export const PlayerScreen = {
               ${castItems
                 .map(
                   (member) => `
-                <div class="player-pause-cast-chip">
+                <button type="button"
+                        class="player-pause-cast-chip focusable"
+                        data-player-pointer-action="openCastDetail"
+                        data-cast-id="${escapeAttribute(member.id || "")}"
+                        data-cast-name="${escapeAttribute(member.name || "")}"
+                        data-cast-role="${escapeAttribute(member.character || "")}"
+                        data-cast-photo="${escapeAttribute(member.photo || "")}"
+                        tabindex="-1">
                   <span>${escapeHtml(member.name || "")}</span>
-                </div>
+                </button>
               `
                 )
                 .join("")}
@@ -17079,6 +17096,31 @@ export const PlayerScreen = {
     void prefetchNextEpisodeSubtitles(this, episode);
   },
 
+  /**
+   * Leaves the player for a cast member's page.
+   *
+   * Reached from the pause overlay, where the cast is already listed but was
+   * previously only text. "Who is that?" is the most common question a paused
+   * TV provokes, and the answer was two screens away.
+   */
+  openCastDetailFromPlayer(dataset = {}) {
+    const castName = String(dataset.castName || "").trim();
+    if (!castName && !dataset.castId) {
+      return;
+    }
+    try {
+      PlayerController.pause();
+    } catch (_) {
+      // Navigating away tears the engine down regardless.
+    }
+    Router.navigate("castDetail", {
+      castId: String(dataset.castId || ""),
+      castName,
+      castRole: String(dataset.castRole || ""),
+      castPhoto: String(dataset.castPhoto || "")
+    });
+  },
+
   /* Subtitle generation overlay ------------------------------------------- */
 
   /** Opens the overlay and resets its progress state. */
@@ -18695,6 +18737,15 @@ export const PlayerScreen = {
 
     if (target.closest?.("[data-player-pointer-action='stillWatchingExit']")) {
       this.onDismissStillWatchingPrompt();
+      return true;
+    }
+
+    const castChip = target.closest?.("[data-player-pointer-action='openCastDetail']");
+    if (castChip) {
+      // Playback stops rather than continuing unheard behind the cast screen:
+      // the viewer paused to look someone up, and coming back to the same frame
+      // is what they expect.
+      this.openCastDetailFromPlayer(castChip.dataset);
       return true;
     }
 
