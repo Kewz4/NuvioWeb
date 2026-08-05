@@ -89,11 +89,7 @@ export function renderModernHomeLayout({
       : rowItems.slice(0, Math.max(maxItems, focusedItemLimit));
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
-      : formatCatalogRowTitle(
-          rowData.catalogName,
-          rowData.type,
-          showCatalogTypeSuffix && !rowData.suppressTypeSuffix
-        );
+      : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
     const deferRowImages =
       typeof shouldDeferRowImages === "function"
         ? shouldDeferRowImages(rowIndex, rowKey, focusedRowKey)

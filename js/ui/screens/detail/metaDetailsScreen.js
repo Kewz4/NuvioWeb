@@ -1,11 +1,6 @@
 ﻿import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { localizeCountryList, localizeLanguage, localizeMetaStatus } from "./metaLabels.js";
-import {
-  addToFamilyList,
-  isInFamilyList,
-  removeFromFamilyList
-} from "../../../data/local/familyListStore.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
 import { watchProgressRepository } from "../../../data/repository/watchProgressRepository.js";
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
@@ -1787,7 +1782,6 @@ export const MetaDetailsScreen = {
     // Read fresh rather than cached: the other profile may have added this
     // title since this screen was last opened, which is the whole point of a
     // shared list.
-    this.isInFamilyList = isInFamilyList(this.params?.itemId || "");
     this.isMarkedWatched = Boolean(
       watchedItem ||
       (progress &&
@@ -3011,15 +3005,6 @@ export const MetaDetailsScreen = {
             ${this.getActiveResumeProgress() ? `<button class="series-secondary-btn focusable" data-action="playFromBeginning">${escapeHtml(t("detail.playFromBeginning", {}, "Play from Beginning"))}</button>` : ""}
             <button class="series-circle-btn focusable${this.isSavedInLibrary ? " is-library-selected" : ""}" data-action="toggleLibrary">
               ${renderLibraryGlyph(this.isSavedInLibrary)}
-            </button>
-            <button class="series-circle-btn focusable${this.isInFamilyList ? " is-selected" : ""}"
-                    data-action="toggleFamilyList"
-                    aria-label="${escapeAttribute(
-                      this.isInFamilyList
-                        ? t("family_list_remove", {}, "Remove from Together list")
-                        : t("family_list_add", {}, "Add to Together list")
-                    )}">
-              <span aria-hidden="true">${this.isInFamilyList ? "♥" : "♡"}</span>
             </button>
             ${showWatchedButton ? `<button class="series-circle-btn focusable${this.isMarkedWatched ? " is-selected" : ""}" data-action="toggleWatched" aria-label="${escapeAttribute(this.isMarkedWatched ? t("common.markUnwatched", {}, "Mark Unwatched") : t("common.markWatched", {}, "Mark Watched"))}">${renderWatchedGlyph(this.isMarkedWatched)}</button>` : ""}
             ${trailerButton}
@@ -4630,37 +4615,6 @@ export const MetaDetailsScreen = {
       return;
     }
     await this.openMovieStreamChooser({ startOver, manualSelection });
-  },
-
-  /**
-   * Adds or removes this title from the household's shared list.
-   *
-   * Separate from the personal library on purpose: the library is "I want to
-   * watch this", the shared list is "we said we'd watch this together", and
-   * collapsing the two loses the only thing the shared one is for.
-   */
-  toggleFamilyListFromHero() {
-    const contentId = String(this.params?.itemId || "");
-    if (!contentId) {
-      return;
-    }
-    if (isInFamilyList(contentId)) {
-      removeFromFamilyList(contentId);
-      this.isInFamilyList = false;
-    } else {
-      addToFamilyList(
-        {
-          contentId,
-          contentType: this.params?.itemType || "movie",
-          title: this.meta?.name || this.params?.fallbackTitle || contentId,
-          poster: this.meta?.poster || null,
-          background: this.meta?.background || null
-        },
-        { profileName: this.sidebarProfile?.name || "" }
-      );
-      this.isInFamilyList = true;
-    }
-    this.syncDetailActionButtons();
   },
 
   async toggleLibraryFromHero() {
@@ -8919,11 +8873,6 @@ export const MetaDetailsScreen = {
 
     if (action === "toggleLibrary") {
       await this.toggleLibraryFromHero();
-      return;
-    }
-
-    if (action === "toggleFamilyList") {
-      this.toggleFamilyListFromHero();
       return;
     }
 

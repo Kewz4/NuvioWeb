@@ -2825,10 +2825,6 @@
     <string name="catalog_order_layout_poster">Poster</string>
     <string name="catalog_order_layout_landscape">Wide</string>
     <string name="sidebar.surprise">Surprise me</string>
-    <string name="family_list_row">Together list</string>
-    <string name="family_list_add">Add to Together list</string>
-    <string name="family_list_remove">Remove from Together list</string>
-    <string name="family_list_added_by">Added by %1$s</string>
     <string name="iptv_search">Search channels</string>
     <string name="iptv_search_active">Search: %1$s</string>
     <string name="iptv_search_results">Search results</string>
