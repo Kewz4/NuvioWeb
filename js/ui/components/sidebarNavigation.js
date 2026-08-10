@@ -4,7 +4,10 @@ import { AvatarRepository } from "../../data/remote/supabase/avatarRepository.js
 import { I18n } from "../../i18n/index.js";
 import { Platform } from "../../platform/index.js";
 import {
+  activateTopBarAction,
   bindTopBarEvents,
+  getTopBarItemForAction,
+  isSelectedTopBarAction,
   getTopBarNodes,
   getTopBarSelectedNode,
   isTopBarNode,
@@ -300,6 +303,13 @@ export function activateLegacySidebarAction(action, currentRoute = "") {
 
   const target = getItemForAction(normalizedAction);
   if (!target) {
+    // The dock carries sections the sidebar never had — Series, Películas,
+    // Deportes, Mi Perfil. Every screen routes its chrome clicks through here,
+    // so falling through keeps those working without each screen having to
+    // learn the new action names.
+    if (getTopBarItemForAction(normalizedAction)) {
+      activateTopBarAction(normalizedAction, currentRoute);
+    }
     return;
   }
   if (target.route === currentRoute) {
@@ -312,7 +322,11 @@ export function activateLegacySidebarAction(action, currentRoute = "") {
 }
 
 export function isSelectedSidebarAction(action, selectedRoute = "") {
-  return getItemForAction(action)?.route === String(selectedRoute || "");
+  const sidebarItem = getItemForAction(action);
+  if (sidebarItem) {
+    return sidebarItem.route === String(selectedRoute || "");
+  }
+  return isSelectedTopBarAction(action, selectedRoute);
 }
 
 export function renderLegacySidebar({ selectedRoute = "home", profile = null, layout = {} } = {}) {

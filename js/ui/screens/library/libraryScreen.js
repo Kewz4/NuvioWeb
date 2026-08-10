@@ -808,8 +808,19 @@ export const LibraryScreen = {
         <main class="home-main library-main">
           <section class="library-page">
             <header class="library-page-header">
-              <h1 class="library-page-title">${escapeHtml(t("library_title", {}, "Library"))}</h1>
+              <h1 class="library-page-title">${escapeHtml(t("myProfile.title", {}, "Mi Perfil"))}</h1>
               <div class="library-page-source" id="libraryPageSource">${escapeHtml(this.controller.getSourceLabel())}</div>
+              <!-- Settings and profile switching lost their sidebar entries when
+                   the dock replaced it, so they live here, where someone looking
+                   for "my things" would already be. -->
+              <div class="library-profile-actions">
+                <button class="library-action-button focusable" data-action="gotoAccount">
+                  ${escapeHtml(t("myProfile.switchProfile", {}, "Cambiar de perfil"))}
+                </button>
+                <button class="library-action-button focusable" data-action="gotoSettings">
+                  ${escapeHtml(t("myProfile.settings", {}, "Configuración"))}
+                </button>
+              </div>
             </header>
 
             ${this.renderPickerGroups(state)}

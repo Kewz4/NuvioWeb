@@ -78,14 +78,19 @@ export function tabAcceptsType(route = "", type = "") {
   return tab.types.some((accepted) => accepted.toLowerCase() === normalized);
 }
 
-/** Keeps only the catalogs or rows a tab should show. */
+/**
+ * Keeps only the catalogs or rows a tab should show.
+ *
+ * Always returns a new array, including on Home where nothing is removed.
+ * Handing the caller's own array back made the pass-through case share identity
+ * with its input, and a caller that emptied one to refill it emptied both.
+ */
 export function filterByTabType(route = "", entries = []) {
+  const list = Array.isArray(entries) ? entries : [];
   if (!isHomeTabRoute(route)) {
-    return Array.isArray(entries) ? entries : [];
+    return list.slice();
   }
-  return (Array.isArray(entries) ? entries : []).filter((entry) =>
-    tabAcceptsType(route, entry?.type)
-  );
+  return list.filter((entry) => tabAcceptsType(route, entry?.type));
 }
 
 /**

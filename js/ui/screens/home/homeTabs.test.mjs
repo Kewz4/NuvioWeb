@@ -79,3 +79,21 @@ test("every tab names a distinct preference scope", () => {
   const scopes = ["series", "movies", "sports"].map((route) => getHomeTab(route).prefsScope);
   assert.equal(new Set(scopes).size, scopes.length);
 });
+
+test("filtering never hands back the caller's own array", () => {
+  // Home is a pass-through, and returning the input meant a caller that emptied
+  // the result to refill it emptied its own source too — which is exactly how
+  // Home lost every catalog row.
+  const rows = [{ type: "movie" }, { type: "series" }];
+  ["home", "series", "movies", "sports"].forEach((route) => {
+    assert.notEqual(filterByTabType(route, rows), rows, route);
+  });
+  assert.equal(rows.length, 2, "source must be untouched");
+});
+
+test("emptying the result leaves the source intact", () => {
+  const rows = [{ type: "movie" }, { type: "series" }];
+  const filtered = filterByTabType("home", rows);
+  filtered.length = 0;
+  assert.equal(rows.length, 2);
+});

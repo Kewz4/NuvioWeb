@@ -8254,22 +8254,22 @@ export const HomeScreen = {
 
     // Filtered before anything is requested, not after: the metadata addon alone
     // declares hundreds of catalogues, and Deportes has no business waiting on
-    // them to find its four.
-    const tabDescriptors = this.filterForActiveTab(catalogDescriptors);
-    catalogDescriptors.length = 0;
-    catalogDescriptors.push(...tabDescriptors);
+    // them to find its four. Bound to its own name rather than written back over
+    // catalogDescriptors — on Home the filter is a pass-through that returns the
+    // very same array, so emptying one to refill it emptied both.
+    const activeDescriptors = this.filterForActiveTab(catalogDescriptors);
 
     // Seed missing order keys from manifest order before progressive requests
     // can add rows in network-completion order.
     this.catalogPrefs().ensureOrderKeys(
-      catalogDescriptors.map((catalog) =>
+      activeDescriptors.map((catalog) =>
         buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId)
       )
     );
 
     const initialCatalogLoad = this.getInitialCatalogLoadCount();
-    const initialDescriptors = catalogDescriptors.slice(0, initialCatalogLoad);
-    const deferredDescriptors = catalogDescriptors.slice(initialCatalogLoad);
+    const initialDescriptors = activeDescriptors.slice(0, initialCatalogLoad);
+    const deferredDescriptors = activeDescriptors.slice(initialCatalogLoad);
 
     const progressiveInitialRows = new Map();
     const initialRows = await this.fetchCatalogRows(initialDescriptors, {
@@ -8892,7 +8892,13 @@ export const HomeScreen = {
     const modernSidebarLayoutClass = this.layoutPrefs?.modernSidebar
       ? " home-modern-sidebar-enabled"
       : "";
-    const layoutClass = `home-layout-${this.layoutMode}${modernLandscapeLayoutClass}${modernHeroFullScreenBackdropClass}${modernSidebarLayoutClass}`;
+    // Without a hero the rows have to claim the whole shell. The modern layout
+    // pins its scroller to the bottom 52% and gives the top half to the hero, so
+    // hiding the hero alone would leave that half as dead black space — on every
+    // tab, and on Home too for anyone who turns the hero off in settings.
+    const modernNoHeroLayoutClass =
+      this.layoutMode === "modern" && !showHeroSection ? " home-modern-no-hero" : "";
+    const layoutClass = `home-layout-${this.layoutMode}${modernLandscapeLayoutClass}${modernHeroFullScreenBackdropClass}${modernSidebarLayoutClass}${modernNoHeroLayoutClass}`;
     const sizingStyle =
       this.layoutMode === "modern" ? buildModernHomeSizingStyle(this.layoutPrefs) : "";
     const showPosterLabels = this.layoutPrefs?.posterLabelsEnabled !== false;

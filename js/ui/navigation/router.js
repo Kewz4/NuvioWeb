@@ -90,6 +90,10 @@ export const Router = {
     profileSelection: ProfileSelectionScreen,
     detail: MetaDetailsScreen,
     library: LibraryScreen,
+    // Mi Perfil is the library page: your list is what people came for, and the
+    // profile switch and settings live in its header now that the dock has no
+    // room for them.
+    myProfile: LibraryScreen,
     iptv: IptvScreen,
     search: SearchScreen,
     discover: DiscoverScreen,

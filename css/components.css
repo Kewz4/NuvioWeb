@@ -22264,3 +22264,21 @@ html.legacy-webos .debug-console-log-frame {
 .performance-constrained .top-bar-item::before {
   transition-duration: 140ms;
 }
+
+/* No hero: the rows take the whole shell.
+   The modern layout pins its scroller to the bottom 52% because the hero owns
+   the top half. With no hero — every filtered tab, and Home for anyone who
+   turns it off — that half would otherwise sit empty and black. */
+.home-screen-shell.home-layout-modern.home-modern-no-hero {
+  --modern-rows-viewport-height: 100%;
+}
+
+.home-screen-shell.home-layout-modern.home-modern-no-hero .home-modern-rows-scroll {
+  /* The first row would otherwise start hard against the dock. */
+  padding-top: clamp(12px, 1.6vh, 28px);
+}
+
+.legacy-tizen .home-screen-shell.home-layout-modern.home-modern-no-hero .home-modern-rows-viewport {
+  bottom: 0;
+  height: var(--modern-rows-viewport-height);
+}
