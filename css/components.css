@@ -22304,23 +22304,233 @@ html.legacy-webos .debug-console-log-frame {
   height: var(--modern-rows-viewport-height);
 }
 
-/* Mi Perfil header actions
-   The two entries the dock has no room for. Kept in the heading row so they are
-   reachable the moment the page paints, including while the library is still
-   syncing — which is exactly when someone wants a way out of it. */
-.library-profile-actions {
+/* Mi Perfil
+   ---------------------------------------------------------------------------
+   Three bands, largest first, in the order the questions get asked: who am I,
+   what am I part-way through, what did I save. Nothing here is nested and every
+   control is one press from the dock — this page exists so a 70-year-old can
+   find their list and their settings without learning a grid. */
+
+.myprofile-main {
+  padding: 0 var(--tv-safe-gutter) clamp(32px, 5vh, 72px);
+  overflow-y: auto;
+}
+
+.myprofile-hero {
+  display: flex;
+  align-items: center;
+  padding: calc(var(--top-bar-height, 76px) + clamp(18px, 3vh, 44px)) 0 clamp(20px, 3vh, 40px);
+}
+
+.myprofile-hero-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(72px, 6.6vw, 132px);
+  height: clamp(72px, 6.6vw, 132px);
+  border-radius: 20px;
+  overflow: hidden;
+  flex: none;
+  color: #ffffff;
+  font-size: clamp(32px, 3vw, 60px);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.myprofile-hero-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.myprofile-hero-copy {
+  margin-left: clamp(16px, 1.4vw, 30px);
+  min-width: 0;
+}
+
+.myprofile-hero-name {
+  margin: 0;
+  font-size: clamp(30px, 2.9vw, 58px);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-color);
+}
+
+.myprofile-hero-caption {
+  margin: clamp(4px, 0.6vh, 10px) 0 0;
+  font-size: clamp(14px, 1.05vw, 21px);
+  color: var(--text-secondary);
+}
+
+/* The actions sit on the identity band rather than in a menu: they are the two
+   things this page is the only route to, so they must be visible without a
+   press. */
+.myprofile-hero-actions {
   display: flex;
   align-items: center;
   margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.library-profile-actions .library-action-button {
+.myprofile-action {
   margin-left: clamp(8px, 0.7vw, 16px);
+  padding: clamp(10px, 1.2vh, 17px) clamp(18px, 1.5vw, 34px);
+  border: 1px solid rgb(var(--secondary-color-rgb) / 0.16);
+  border-radius: 999px;
+  background: rgb(var(--secondary-color-rgb) / 0.08);
+  color: var(--text-color);
+  font-family: var(--app-font-family);
+  font-size: clamp(14px, 1.05vw, 21px);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
 }
 
-/* The heading row carries three things now, so the source label stops competing
-   with the buttons for the same edge. */
-.library-page-header .library-page-source {
-  margin-left: clamp(12px, 1vw, 24px);
-  align-self: center;
+.myprofile-action.focused,
+.myprofile-action:focus-visible {
+  outline: none;
+  background: var(--focus-color);
+  color: var(--on-secondary);
+  border-color: var(--focus-color);
+  transform: translateZ(0) scale(1.04);
+}
+
+.myprofile-row {
+  margin-top: clamp(18px, 2.6vh, 40px);
+}
+
+.myprofile-row-title {
+  margin: 0 0 clamp(10px, 1.4vh, 20px);
+  font-size: clamp(18px, 1.5vw, 30px);
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.myprofile-row-track {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 6px;
+}
+
+.myprofile-row-track::-webkit-scrollbar {
+  display: none;
+}
+
+.myprofile-card {
+  display: block;
+  flex: none;
+  width: clamp(104px, 8.6vw, 172px);
+  margin-right: clamp(10px, 0.9vw, 20px);
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
+}
+
+.myprofile-card.focused,
+.myprofile-card:focus-visible {
+  outline: none;
+  transform: translateZ(0) scale(1.07);
+}
+
+.myprofile-card-art {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--tv-card-radius);
+  overflow: hidden;
+  background: var(--card-bg);
+}
+
+/* Chromium 63 has no aspect-ratio; the padding trick keeps the shape there. */
+.no-aspect-ratio .myprofile-card-art {
+  height: 0;
+  padding-bottom: 150%;
+}
+
+.myprofile-card-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.myprofile-card-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(26px, 2.2vw, 44px);
+  font-weight: 700;
+  color: var(--text-tertiary);
+}
+
+.myprofile-card.focused .myprofile-card-art {
+  box-shadow: 0 0 0 3px var(--focus-color);
+}
+
+/* Only on Seguir viendo, where "how far in am I" is the reason to look. */
+.myprofile-card-progress {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 8%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  overflow: hidden;
+}
+
+.myprofile-card-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--secondary-color);
+}
+
+.myprofile-card-title {
+  display: block;
+  margin-top: clamp(6px, 0.8vh, 12px);
+  font-size: clamp(12px, 0.92vw, 18px);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.myprofile-card.focused .myprofile-card-title {
+  color: var(--text-color);
+}
+
+.myprofile-empty {
+  padding: clamp(28px, 5vh, 64px) 0;
+}
+
+.myprofile-empty-title {
+  margin: 0;
+  font-size: clamp(18px, 1.5vw, 30px);
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.myprofile-empty-hint {
+  margin: clamp(6px, 0.8vh, 12px) 0 0;
+  font-size: clamp(14px, 1.05vw, 21px);
+  color: var(--text-secondary);
 }

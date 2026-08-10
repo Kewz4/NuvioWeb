@@ -724,6 +724,15 @@ const SECTION_META = [
   }
 ];
 
+// The pages that keep their own row arrangement. An empty scope means Home,
+// which is what catalogOrderScreen treats as "no tab".
+const ROW_ORGANISER_SCOPES = [
+  { scope: "", labelKey: "topbar.home", fallbackLabel: "Inicio" },
+  { scope: "series", labelKey: "topbar.series", fallbackLabel: "Series" },
+  { scope: "movies", labelKey: "topbar.movies", fallbackLabel: "Películas" },
+  { scope: "sports", labelKey: "topbar.sports", fallbackLabel: "Deportes" }
+];
+
 const SECTION_ICONS = {
   account: "person",
   profiles: "people",
@@ -3298,6 +3307,18 @@ export const SettingsScreen = {
     this.actionMap.set("layout:toggle:focusedPoster", () => {
       this.toggleExpandedSection("layout", "focusedPoster");
     });
+    this.actionMap.set("layout:toggle:rowOrganiser", () => {
+      this.toggleExpandedSection("layout", "rowOrganiser");
+    });
+
+    // Each page keeps its own arrangement, so the organiser has to be told which
+    // one to edit. Holding a card on the page itself still works and is quicker;
+    // this is the route for anyone who would not think to try that.
+    ROW_ORGANISER_SCOPES.forEach((entry) => {
+      this.actionMap.set(`layout:rows:${entry.scope || "home"}`, () => {
+        Router.navigate("catalogOrder", { scope: entry.scope });
+      });
+    });
 
     HOME_LAYOUT_OPTIONS.forEach((option) => {
       this.actionMap.set(`layout:layout:${option.id}`, () => {
@@ -3662,6 +3683,25 @@ export const SettingsScreen = {
       </div>
     `;
 
+    // One entry per page that has rows of its own. Named for what the viewer sees
+    // in the dock rather than the internal route, because that is what they will
+    // be looking for.
+    const rowOrganiserBody = `
+      <div class="settings-stack">
+        ${ROW_ORGANISER_SCOPES.map((entry) =>
+          this.renderActionRow({
+            focusKey: `layout:rows:${entry.scope || "home"}`,
+            title: t(entry.labelKey, {}, entry.fallbackLabel),
+            subtitle: t(
+              "settings.layout.rowOrganiser.rowSubtitle",
+              {},
+              "Ordenar, ocultar y cambiar la forma"
+            )
+          })
+        ).join("")}
+      </div>
+    `;
+
     const focusedPosterBody = `
       <div class="settings-stack">
         ${
@@ -3774,6 +3814,17 @@ export const SettingsScreen = {
             subtitle: t("settings.layout.groups.focusedPoster.subtitle"),
             expanded: Boolean(expanded.focusedPoster),
             bodyHtml: focusedPosterBody
+          })}
+          ${this.renderCollapsibleRow({
+            focusKey: "layout:toggle:rowOrganiser",
+            title: t("settings.layout.groups.rowOrganiser.title", {}, "Organizar filas"),
+            subtitle: t(
+              "settings.layout.groups.rowOrganiser.subtitle",
+              {},
+              "Ordenar, ocultar y cambiar la forma de las filas"
+            ),
+            expanded: Boolean(expanded.rowOrganiser),
+            bodyHtml: rowOrganiserBody
           })}
         </div>
       </div>

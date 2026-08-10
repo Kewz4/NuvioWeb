@@ -2888,4 +2888,12 @@
     <string name="myProfile.settings">Settings</string>
     <string name="tab.manageRows">Manage rows</string>
     <string name="tab.manageRowsFor">Rows — %1$s</string>
+    <string name="settings.layout.groups.rowOrganiser.title">Organise rows</string>
+    <string name="settings.layout.groups.rowOrganiser.subtitle">Reorder, hide and reshape rows on each page</string>
+    <string name="settings.layout.rowOrganiser.rowSubtitle">Reorder, hide and reshape</string>
+    <string name="myProfile.caption">Your list and your settings</string>
+    <string name="myProfile.continue">Keep watching</string>
+    <string name="myProfile.fullLibrary">See my whole list</string>
+    <string name="myProfile.emptyTitle">You haven't saved anything yet</string>
+    <string name="myProfile.emptyHint">Anything you save will appear here.</string>
 </resources>

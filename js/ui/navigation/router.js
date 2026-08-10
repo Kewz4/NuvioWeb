@@ -7,6 +7,7 @@ import { SyncCodeScreen } from "../screens/account/syncCodeScreen.js";
 import { ProfileSelectionScreen } from "../../core/profile/profileSelectionScreen.js";
 import { MetaDetailsScreen } from "../screens/detail/metaDetailsScreen.js";
 import { LibraryScreen } from "../screens/library/libraryScreen.js";
+import { MyProfileScreen } from "../screens/profile/myProfileScreen.js";
 import { IptvScreen } from "../screens/iptv/iptvScreen.js";
 import { SearchScreen } from "../screens/search/searchScreen.js";
 import { DiscoverScreen } from "../screens/search/discoverScreen.js";
@@ -90,10 +91,7 @@ export const Router = {
     profileSelection: ProfileSelectionScreen,
     detail: MetaDetailsScreen,
     library: LibraryScreen,
-    // Mi Perfil is the library page: your list is what people came for, and the
-    // profile switch and settings live in its header now that the dock has no
-    // room for them.
-    myProfile: LibraryScreen,
+    myProfile: MyProfileScreen,
     iptv: IptvScreen,
     search: SearchScreen,
     discover: DiscoverScreen,

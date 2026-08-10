@@ -2586,4 +2586,12 @@
     <string name="myProfile.settings">Configuración</string>
     <string name="tab.manageRows">Organizar filas</string>
     <string name="tab.manageRowsFor">Filas — %1$s</string>
+    <string name="settings.layout.groups.rowOrganiser.title">Organizar filas</string>
+    <string name="settings.layout.groups.rowOrganiser.subtitle">Ordenar, ocultar y cambiar la forma de las filas de cada página</string>
+    <string name="settings.layout.rowOrganiser.rowSubtitle">Ordenar, ocultar y cambiar la forma</string>
+    <string name="myProfile.caption">Tu lista y tus ajustes</string>
+    <string name="myProfile.continue">Seguir viendo</string>
+    <string name="myProfile.fullLibrary">Ver toda mi lista</string>
+    <string name="myProfile.emptyTitle">Todavía no has guardado nada</string>
+    <string name="myProfile.emptyHint">Lo que guardes aparecerá aquí.</string>
 </resources>

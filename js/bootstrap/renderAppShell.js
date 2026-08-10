@@ -9,6 +9,7 @@ const APP_SHELL = `
     <div id="catalogSeeAll" class="screen"></div>
     <div id="folderDetail" class="screen"></div>
     <div id="library" class="screen"></div>
+    <div id="myProfile" class="screen"></div>
     <div id="iptv" class="screen"></div>
     <div id="search" class="screen"></div>
     <div id="discover" class="screen"></div>
