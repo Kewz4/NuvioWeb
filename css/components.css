@@ -22251,11 +22251,31 @@ html.legacy-webos .debug-console-log-frame {
   display: block;
 }
 
-/* Content sits under the dock, so every screen showing one needs room at the
-   top. Applied to the shell so the measurement lives in one place. */
+/* The dock floats over the content, it does not push it down.
+   Padding the shell put a band of page background above everything, which read
+   as a black rectangle bolted to the top of the screen — the opposite of an
+   island. The shell now only publishes the measurement; whatever scrolls asks
+   for the clearance it needs, so artwork reaches y=0 and rows travel under the
+   dock rather than stopping short of it. */
 .has-top-bar {
   --top-bar-height: clamp(62px, 6.8vh, 100px);
+}
+
+/* Screens whose content starts with a heading rather than artwork need the
+   clearance inside the scroller, so the heading clears the dock at rest and
+   still passes beneath it once scrolled. */
+.has-top-bar > .home-main,
+.has-top-bar > .seeall-main,
+.has-top-bar > main {
   padding-top: var(--top-bar-height);
+}
+
+/* Modern Home and its tabs are the exception: the hero is artwork and belongs at
+   y=0 behind the dock, which is what makes the dock look like it is floating on
+   it, and the no-hero tabs carry their clearance on the row scroller instead.
+   Keyed off the layout class rather than :has(), which Tizen 5.5 predates. */
+.has-top-bar.home-layout-modern > .home-main {
+  padding-top: 0;
 }
 
 /* Shorter transitions on a TV: during a route switch the screen is being
@@ -22274,11 +22294,33 @@ html.legacy-webos .debug-console-log-frame {
 }
 
 .home-screen-shell.home-layout-modern.home-modern-no-hero .home-modern-rows-scroll {
-  /* The first row would otherwise start hard against the dock. */
-  padding-top: clamp(12px, 1.6vh, 28px);
+  /* No hero to sit behind the dock, so the rows themselves carry the clearance.
+     Inside the scroller, so they pass under the dock as they move. */
+  padding-top: calc(var(--top-bar-height, 76px) + clamp(6px, 0.8vh, 16px));
 }
 
 .legacy-tizen .home-screen-shell.home-layout-modern.home-modern-no-hero .home-modern-rows-viewport {
   bottom: 0;
   height: var(--modern-rows-viewport-height);
+}
+
+/* Mi Perfil header actions
+   The two entries the dock has no room for. Kept in the heading row so they are
+   reachable the moment the page paints, including while the library is still
+   syncing — which is exactly when someone wants a way out of it. */
+.library-profile-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.library-profile-actions .library-action-button {
+  margin-left: clamp(8px, 0.7vw, 16px);
+}
+
+/* The heading row carries three things now, so the source label stops competing
+   with the buttons for the same edge. */
+.library-page-header .library-page-source {
+  margin-left: clamp(12px, 1vw, 24px);
+  align-self: center;
 }

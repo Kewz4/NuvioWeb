@@ -233,7 +233,16 @@ export function bindTopBarEvents(
       if (keyCode === 37 || keyCode === 39) {
         event?.preventDefault?.();
         event?.stopPropagation?.();
-        move(node, keyCode === 37 ? -1 : 1);
+        // Two owners want this key: the focus engine hands it to the screen's
+        // own direction logic in the capture phase, and this listener sees it
+        // again on the way back up. Whichever ran first has already moved focus
+        // off this node, so acting again would move a second step — and if the
+        // screen moved left while this moved from a stale index, the pair could
+        // land to the right of where it started. Moving only while focus is
+        // still here makes whichever handler arrives first the only one to act.
+        if (document.activeElement === node) {
+          move(node, keyCode === 37 ? -1 : 1);
+        }
         return;
       }
       if (keyCode === 40 && typeof onLeaveDown === "function") {

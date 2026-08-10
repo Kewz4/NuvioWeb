@@ -330,19 +330,53 @@ export const LibraryScreen = {
     return Boolean(this.posterOptionsController?.dialog);
   },
 
+  /**
+   * The page heading, with the two entries the dock has no room for.
+   *
+   * Shared with the loading state on purpose. Settings and profile switching are
+   * the way out of a library that is slow or stuck syncing, so hiding them
+   * behind the spinner is exactly when they are needed most.
+   */
+  renderProfileHeader(sourceLabel = "") {
+    return `
+      <header class="library-page-header">
+        <h1 class="library-page-title">${escapeHtml(t("myProfile.title", {}, "Mi Perfil"))}</h1>
+        <div class="library-page-source" id="libraryPageSource">${escapeHtml(sourceLabel)}</div>
+        <div class="library-profile-actions">
+          <button class="library-action-button focusable" data-action="gotoAccount">
+            ${escapeHtml(t("myProfile.switchProfile", {}, "Cambiar de perfil"))}
+          </button>
+          <button class="library-action-button focusable" data-action="gotoSettings">
+            ${escapeHtml(t("myProfile.settings", {}, "Configuración"))}
+          </button>
+        </div>
+      </header>
+    `;
+  },
+
   renderLoading() {
     this.container.innerHTML = `
       <div class="home-shell library-shell${this.libraryRouteEnterPending ? " library-route-enter" : ""}">
         ${this.renderSidebar()}
         <main class="home-main library-main">
-          <section class="library-loading-state">
-            ${renderLoadingIndicator({ className: "library-loading-spinner" })}
-            <div class="library-loading-label">${escapeHtml(t("library_syncing_library", {}, "Loading library"))}</div>
+          <section class="library-page">
+            ${this.renderProfileHeader(t("library_syncing_library", {}, "Loading library"))}
+            <section class="library-loading-state">
+              ${renderLoadingIndicator({ className: "library-loading-spinner" })}
+              <div class="library-loading-label">${escapeHtml(t("library_syncing_library", {}, "Loading library"))}</div>
+            </section>
           </section>
         </main>
       </div>
     `;
     this.libraryRouteEnterPending = false;
+    // The loaded page binds these further down; the loading page used to return
+    // before reaching that, leaving the dock rendered but inert.
+    bindRootSidebarEvents(this.container, {
+      currentRoute: "library",
+      onSelectedAction: () => this.focusMainNode(),
+      onExpandSidebar: () => this.focusSidebarNode()
+    });
   },
 
   renderSidebar() {
@@ -807,21 +841,7 @@ export const LibraryScreen = {
         ${this.renderSidebar()}
         <main class="home-main library-main">
           <section class="library-page">
-            <header class="library-page-header">
-              <h1 class="library-page-title">${escapeHtml(t("myProfile.title", {}, "Mi Perfil"))}</h1>
-              <div class="library-page-source" id="libraryPageSource">${escapeHtml(this.controller.getSourceLabel())}</div>
-              <!-- Settings and profile switching lost their sidebar entries when
-                   the dock replaced it, so they live here, where someone looking
-                   for "my things" would already be. -->
-              <div class="library-profile-actions">
-                <button class="library-action-button focusable" data-action="gotoAccount">
-                  ${escapeHtml(t("myProfile.switchProfile", {}, "Cambiar de perfil"))}
-                </button>
-                <button class="library-action-button focusable" data-action="gotoSettings">
-                  ${escapeHtml(t("myProfile.settings", {}, "Configuración"))}
-                </button>
-              </div>
-            </header>
+            ${this.renderProfileHeader(this.controller.getSourceLabel())}
 
             ${this.renderPickerGroups(state)}
 
