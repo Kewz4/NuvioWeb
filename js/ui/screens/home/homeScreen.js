@@ -7,6 +7,8 @@ import { watchedItemsRepository } from "../../../data/repository/watchedItemsRep
 import { watchedSeriesReconciliationService } from "../../../data/repository/watchedSeriesReconciliationService.js";
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
 import { WatchedItemsStore } from "../../../data/local/watchedItemsStore.js";
+import { getTabCatalogStore } from "../../../data/local/tabCatalogStore.js";
+import { filterByTabType, isHomeTabRoute, showsHomeChrome } from "./homeTabs.js";
 import {
   buildSurprisePool,
   pickSurprise,
@@ -58,6 +60,7 @@ import {
   getLegacySidebarSelectedNode,
   getModernSidebarNodes,
   getModernSidebarSelectedNode,
+  getRootSidebarSelectedNode,
   getSidebarProfileState,
   focusWithoutAutoScroll,
   renderRootSidebar,
@@ -6628,6 +6631,26 @@ export const HomeScreen = {
     }
   },
 
+  /**
+   * Preferences for whichever tab is showing.
+   *
+   * Home keeps using HomeCatalogStore, which is synced to the account, so its
+   * arrangement is untouched by any of this. Each tab has its own scope, so
+   * reordering Deportes cannot disturb Series.
+   */
+  catalogPrefs() {
+    return getTabCatalogStore(this.activeRoute) || HomeCatalogStore;
+  },
+
+  /** Keeps only the catalogs this tab shows. Home is unfiltered. */
+  filterForActiveTab(entries = []) {
+    return filterByTabType(this.activeRoute, entries);
+  },
+
+  isTabRoute() {
+    return isHomeTabRoute(this.activeRoute);
+  },
+
   onSidebarReselect() {
     const viewport = this.getHomeViewport();
     if (viewport) {
@@ -7515,9 +7538,15 @@ export const HomeScreen = {
   },
 
   buildNavigationModel() {
-    const sidebar = this.layoutPrefs?.modernSidebar
-      ? Array.from(this.container?.querySelectorAll(".modern-sidebar-panel .focusable") || [])
-      : Array.from(this.container?.querySelectorAll(".home-sidebar .focusable") || []);
+    // The dock occupies the same navigation zone the sidebar used to. Reusing
+    // the name rather than adding a third one means focus save/restore, the
+    // back handler and the reselect path all keep working untouched; only the
+    // direction mapping differs, and that is handled in handleDirection.
+    const sidebar = this.layoutPrefs?.topBarNavigation
+      ? Array.from(this.container?.querySelectorAll(".top-bar .focusable") || [])
+      : this.layoutPrefs?.modernSidebar
+        ? Array.from(this.container?.querySelectorAll(".modern-sidebar-panel .focusable") || [])
+        : Array.from(this.container?.querySelectorAll(".home-sidebar .focusable") || []);
     const rows = [];
     const tracks = [];
     const rowSectionByKey = new Map();
@@ -7722,6 +7751,23 @@ export const HomeScreen = {
       return true;
     }
 
+    if (isSidebar && this.layoutPrefs?.topBarNavigation) {
+      // A dock runs across the top, so it reads left/right and hands "down"
+      // back to the content. "Up" is already at the top and stays put rather
+      // than letting focus escape the dock entirely.
+      const barIndex = Number(current.dataset.navIndex || 0);
+      if (direction === "left" || direction === "right") {
+        const nextIndex = direction === "left" ? barIndex - 1 : barIndex + 1;
+        const target =
+          nav.sidebar[Math.max(0, Math.min(nav.sidebar.length - 1, nextIndex))] || current;
+        return this.focusNode(current, target, direction, inputMeta) || true;
+      }
+      if (direction === "down") {
+        return this.closeSidebarToContent() || true;
+      }
+      return true;
+    }
+
     if (isSidebar) {
       const sidebarIndex = Number(current.dataset.navIndex || 0);
       if (direction === "up") {
@@ -7745,6 +7791,11 @@ export const HomeScreen = {
     if (direction === "left") {
       const targetInRow = rowNodes[col - 1] || null;
       if (this.focusNode(current, targetInRow, direction, inputMeta)) {
+        return true;
+      }
+      if (this.layoutPrefs?.topBarNavigation) {
+        // Nothing lives to the left of a row any more. Consumed so focus stays
+        // on the first card instead of jumping somewhere unrelated.
         return true;
       }
       const sidebarFallback =
@@ -7772,6 +7823,16 @@ export const HomeScreen = {
       const targetRow = row + delta;
       const targetRowNodes = nav.rows[targetRow] || null;
       if (!targetRowNodes || !targetRowNodes.length) {
+        if (direction === "up" && this.layoutPrefs?.topBarNavigation) {
+          // Off the top of the content: the dock is what is up there, and
+          // landing on the current tab tells the viewer where they already are.
+          const target =
+            getRootSidebarSelectedNode(this.container, this.layoutPrefs) || nav.sidebar[0] || null;
+          if (target) {
+            this.lastMainFocus = current;
+            return this.focusNode(current, target, direction, inputMeta) || true;
+          }
+        }
         return true;
       }
       const target = this.resolvePreferredNodeForRow(targetRowNodes, col);
@@ -7910,6 +7971,10 @@ export const HomeScreen = {
 
   async mount(params = {}, navigationContext = {}) {
     const mountStart = HOME_PERF_DEBUG ? homePerfNow() : 0;
+    // This screen serves Home and every top-bar tab. The route decides which,
+    // and it has to be settled first because the preference store, the catalog
+    // filter and the chrome all key off it.
+    this.activeRoute = Router.getCurrent() || "home";
     this.container = document.getElementById("home");
     const restoredRouteFocusState =
       navigationContext?.isBackNavigation && navigationContext?.restoredState?.layoutMode
@@ -8014,7 +8079,9 @@ export const HomeScreen = {
       this.syncFocusedCollectionCardState();
       if (this.layoutMode === "grid") {
         this.setupGridStickyHeader(
-          Boolean(this.layoutPrefs?.heroSectionEnabled) && Boolean(this.heroItem)
+          showsHomeChrome(this.activeRoute) &&
+            Boolean(this.layoutPrefs?.heroSectionEnabled) &&
+            Boolean(this.heroItem)
         );
       }
       this.startHeroRotation();
@@ -8078,9 +8145,12 @@ export const HomeScreen = {
     this.rows = [];
     this.watchedItems = [];
     this.watchedTitleIds = new Set();
-    this.continueWatchingDisplay = readContinueWatchingDisplaySnapshot(
-      watchProgressRepository.getContinueWatchingSourceKey()
-    );
+    // A tab is a shelf of one kind of thing. A half-watched film at the top of
+    // Deportes would be noise, and skipping the section also skips the progress
+    // reconciliation it triggers — which is most of what a tab switch costs.
+    this.continueWatchingDisplay = showsHomeChrome(this.activeRoute)
+      ? readContinueWatchingDisplaySnapshot(watchProgressRepository.getContinueWatchingSourceKey())
+      : [];
     this.continueWatchingHydratedFromSnapshot = Boolean(this.continueWatchingDisplay.length);
     this.continueWatchingLoading = false;
     this.heroCandidates = [];
@@ -8182,9 +8252,16 @@ export const HomeScreen = {
         });
     });
 
+    // Filtered before anything is requested, not after: the metadata addon alone
+    // declares hundreds of catalogues, and Deportes has no business waiting on
+    // them to find its four.
+    const tabDescriptors = this.filterForActiveTab(catalogDescriptors);
+    catalogDescriptors.length = 0;
+    catalogDescriptors.push(...tabDescriptors);
+
     // Seed missing order keys from manifest order before progressive requests
     // can add rows in network-completion order.
-    HomeCatalogStore.ensureOrderKeys(
+    this.catalogPrefs().ensureOrderKeys(
       catalogDescriptors.map((catalog) =>
         buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId)
       )
@@ -8629,18 +8706,22 @@ export const HomeScreen = {
   },
 
   sortAndFilterRows(rows = [], collections = []) {
-    const collectionRows = (Array.isArray(collections) ? collections : [])
-      .map((collection) => buildCollectionHomeRow(collection))
-      .filter((row) => Array.isArray(row?.result?.data?.items) && row.result.data.items.length);
-    const catalogRows = (Array.isArray(rows) ? rows : []).filter(
-      (row) => row?.rowKind !== "collection"
+    // Collections are hand-made mixtures of films and series, so they belong to
+    // Home; showing one under Series would misrepresent what is in it.
+    const collectionRows = this.isTabRoute()
+      ? []
+      : (Array.isArray(collections) ? collections : [])
+          .map((collection) => buildCollectionHomeRow(collection))
+          .filter((row) => Array.isArray(row?.result?.data?.items) && row.result.data.items.length);
+    const catalogRows = this.filterForActiveTab(
+      (Array.isArray(rows) ? rows : []).filter((row) => row?.rowKind !== "collection")
     );
     const rowMap = new Map(
       [...catalogRows, ...collectionRows].map((row) => [row.homeCatalogKey, row])
     );
     const allKeys = Array.from(rowMap.keys());
-    const orderedKeys = HomeCatalogStore.ensureOrderKeys(allKeys);
-    const homeCatalogPrefs = HomeCatalogStore.get();
+    const orderedKeys = this.catalogPrefs().ensureOrderKeys(allKeys);
+    const homeCatalogPrefs = this.catalogPrefs().get();
     const disabledKeys = new Set(homeCatalogPrefs.disabled || []);
     const customTitles = homeCatalogPrefs.customTitles || {};
     const applyCustomTitle = (row) => {
@@ -8795,7 +8876,10 @@ export const HomeScreen = {
       heroItem = { ...heroItem, heroMetaEnriching: true };
       this.heroItem = heroItem;
     }
-    const showHeroSection = Boolean(this.layoutPrefs?.heroSectionEnabled) && Boolean(heroItem);
+    const showHeroSection =
+      showsHomeChrome(this.activeRoute) &&
+      Boolean(this.layoutPrefs?.heroSectionEnabled) &&
+      Boolean(heroItem);
     const modernLandscapePostersEnabled =
       this.layoutMode === "modern" && Boolean(this.layoutPrefs?.modernLandscapePostersEnabled);
     const modernLandscapeLayoutClass = modernLandscapePostersEnabled
@@ -8813,7 +8897,10 @@ export const HomeScreen = {
       this.layoutMode === "modern" ? buildModernHomeSizingStyle(this.layoutPrefs) : "";
     const showPosterLabels = this.layoutPrefs?.posterLabelsEnabled !== false;
     const showCatalogAddonName = this.layoutPrefs?.catalogAddonNameEnabled !== false;
-    const showCatalogTypeSuffix = this.layoutPrefs?.catalogTypeSuffixEnabled !== false;
+    // On a filtered tab every row is the same kind, so "- Película" on all four
+    // of them is noise that costs width and tells the viewer nothing.
+    const showCatalogTypeSuffix =
+      !this.isTabRoute() && this.layoutPrefs?.catalogTypeSuffixEnabled !== false;
     const pendingPosterFocusState = this.pendingPosterHoldFocus?.rowKey
       ? {
           rowKey: String(this.pendingPosterHoldFocus.rowKey),
@@ -8868,8 +8955,11 @@ export const HomeScreen = {
         rows: this.rows,
         heroItem,
         heroCandidates: this.heroCandidates,
-        continueWatchingItems: this.continueWatchingDisplay || [],
-        continueWatchingLoading: Boolean(this.continueWatchingLoading),
+        continueWatchingItems: showsHomeChrome(this.activeRoute)
+          ? this.continueWatchingDisplay || []
+          : [],
+        continueWatchingLoading:
+          showsHomeChrome(this.activeRoute) && Boolean(this.continueWatchingLoading),
         continueWatchingLoadingCount: effectiveContinueWatchingLoadingCount,
         continueWatchingRenderLimit,
         useEpisodeThumbnailsInCw: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
@@ -8879,7 +8969,7 @@ export const HomeScreen = {
         showPosterLabels,
         showCatalogTypeSuffix,
         preferLandscapePosters: modernLandscapePostersEnabled,
-        rowLayouts: HomeCatalogStore.get().rowLayouts || {},
+        rowLayouts: this.catalogPrefs().get().rowLayouts || {},
         focusedRowKey: focusState?.rowKey || "",
         focusedItemIndex: Number.isFinite(focusState?.itemIndex) ? focusState.itemIndex : -1,
         expandFocusedPoster,
@@ -8897,14 +8987,17 @@ export const HomeScreen = {
       this.catalogSeeAllMap = modernLayoutPayload.catalogSeeAllMap;
       mainContentMarkup = modernLayoutPayload.markup;
     } else {
-      const continueHtml = renderContinueWatchingSection(this.continueWatchingDisplay || [], {
-        rowKey: "continue_watching",
-        loading: Boolean(this.continueWatchingLoading),
-        loadingCount: effectiveContinueWatchingLoadingCount,
-        itemLimit: continueWatchingRenderLimit,
-        useEpisodeThumbnails: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
-        blurNextUp: resolveContinueWatchingBlurNextUp(this.layoutPrefs)
-      });
+      const continueHtml = renderContinueWatchingSection(
+        showsHomeChrome(this.activeRoute) ? this.continueWatchingDisplay || [] : [],
+        {
+          rowKey: "continue_watching",
+          loading: showsHomeChrome(this.activeRoute) && Boolean(this.continueWatchingLoading),
+          loadingCount: effectiveContinueWatchingLoadingCount,
+          itemLimit: continueWatchingRenderLimit,
+          useEpisodeThumbnails: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
+          blurNextUp: resolveContinueWatchingBlurNextUp(this.layoutPrefs)
+        }
+      );
       const legacyRowsPayload = renderLegacyCatalogRowsMarkup(this.rows, {
         layoutMode: this.layoutMode,
         showPosterLabels,
@@ -8943,7 +9036,7 @@ export const HomeScreen = {
     this.container.innerHTML = `
       <div class="home-shell home-screen-shell ${layoutClass}"${sizingStyle ? ` style="${escapeAttribute(sizingStyle)}"` : ""}>
         ${renderRootSidebar({
-          selectedRoute: "home",
+          selectedRoute: this.activeRoute,
           profile: this.sidebarProfile,
           layout: this.layoutPrefs,
           expanded: Boolean(this.sidebarExpanded),
@@ -8971,7 +9064,7 @@ export const HomeScreen = {
       );
     }
     bindRootSidebarEvents(this.container, {
-      currentRoute: "home",
+      currentRoute: this.activeRoute,
       onSelectedAction: () => this.closeSidebarToContent(),
       onExpandSidebar: () => this.openSidebar()
     });

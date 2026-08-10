@@ -75,7 +75,13 @@ export const Router = {
   routeReturnBackGuardNavigationId: 0,
 
   routes: {
+    // The tabs are the home screen with a content filter, so they share its
+    // object. One instance means the TV holds one set of row nodes and one
+    // navigation model however many tabs there are.
     home: HomeScreen,
+    series: HomeScreen,
+    movies: HomeScreen,
+    sports: HomeScreen,
     player: PlayerScreen,
     account: AccountScreen,
     authQrSignIn: AuthQrSignInScreen,

@@ -73,8 +73,31 @@ export async function loadStreamingLibs() {
   }
 }
 
+/**
+ * Whether this device plays through a native pipeline rather than these
+ * libraries.
+ *
+ * Tizen and webOS hand playback to AVPlay, which decodes HLS and DASH itself.
+ * hls.js and dash.js are together about 1.2 MB to download, parse and execute,
+ * and on a TV that money buys nothing — the engine picker only reaches for them
+ * when AVPlay has already been ruled out, which is rare and can afford to wait
+ * for the load at that point. So the warm-up is skipped here entirely; the
+ * on-demand path in ensureAdaptiveLibrariesForSource still covers the fallback.
+ */
+function playsThroughNativePipeline() {
+  const root = globalThis;
+  if (root.__NUVIO_PLATFORM__ === "tizen" || root.__NUVIO_PLATFORM__ === "webos") {
+    return true;
+  }
+  const webapis = root.webapis || {};
+  return Boolean(root.tizen || root.avplay || webapis.avplay || webapis.avPlay || root.webOS);
+}
+
 export function warmStreamingLibs(options = {}) {
   if (streamingLibsWarmupScheduled || STREAMING_LIBS.every((entry) => entry.isLoaded())) {
+    return;
+  }
+  if (playsThroughNativePipeline()) {
     return;
   }
   streamingLibsWarmupScheduled = true;

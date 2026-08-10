@@ -22080,3 +22080,187 @@ html.legacy-webos .debug-console-log-frame {
   color: rgba(255, 255, 255, 0.92);
   text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
 }
+
+/* Floating top bar
+   ---------------------------------------------------------------------------
+   A centred dock rather than a full-width band: the page's artwork runs edge to
+   edge behind it and only a pill of frosted glass floats above, which is what
+   keeps it from reading as browser chrome.
+
+   Everything that animates here is opacity or transform on an already
+   composited layer. A bar that forces layout while the rows scroll past it is
+   worse than no bar at all on a TV. */
+
+.top-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  padding: clamp(10px, 1.5vh, 24px) var(--tv-safe-gutter);
+  /* No background of its own — the strip either side of the dock has to stay
+     completely transparent or the dock stops looking like it is floating. */
+  background: none;
+  pointer-events: none;
+}
+
+/* The dock. Sized by its contents so it stays centred however many tabs there
+   are, and frosted at all times rather than fading in on scroll: a dock that
+   appears and disappears is a dock nobody trusts is there. */
+.top-bar-inner {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: clamp(5px, 0.55vh, 9px) clamp(8px, 0.7vw, 15px);
+  border-radius: 999px;
+  border: 1px solid rgb(var(--secondary-color-rgb) / 0.1);
+  background: rgb(20 20 20 / 0.72);
+  box-shadow:
+    0 12px 34px rgb(0 0 0 / 0.44),
+    inset 0 1px 0 rgb(var(--secondary-color-rgb) / 0.06);
+  pointer-events: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: layout paint style;
+}
+
+/* Real frosted glass only where the platform can pay for it every frame. Tizen
+   is excluded by applyPerformanceMode, so the flat translucent fill above has
+   to look finished on its own rather than being a stand-in for a blur. */
+.modern-sidebar-blur-capable .top-bar-inner {
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  background: rgb(20 20 20 / 0.46);
+}
+
+.top-bar-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(6px, 0.75vh, 11px) clamp(13px, 1.05vw, 24px);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--app-font-family);
+  font-size: clamp(14px, 1.05vw, 21px);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  /* Colour and transform only. Animating width, padding or margin would reflow
+     the whole dock on every focus move. */
+  transition:
+    color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* The pill is a pseudo-element so selecting and focusing scale one layer rather
+   than animating the button's own box. */
+.top-bar-item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgb(var(--secondary-color-rgb) / 0.15);
+  opacity: 0;
+  transform: scale(0.86);
+  transition:
+    opacity 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.top-bar-item.selected {
+  color: var(--text-color);
+  font-weight: 700;
+}
+
+.top-bar-item.selected::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Focus has to beat selection at a glance from three metres, so it inverts
+   rather than just brightening. */
+.top-bar-item.focused,
+.top-bar-item:focus-visible {
+  color: var(--on-secondary);
+  outline: none;
+  transform: translateZ(0) scale(1.05);
+}
+
+.top-bar-item.focused::before,
+.top-bar-item:focus-visible::before {
+  opacity: 1;
+  transform: scale(1);
+  background: var(--focus-color);
+}
+
+.top-bar-label {
+  position: relative;
+}
+
+.top-bar-item.icon-only {
+  padding-left: clamp(11px, 0.85vw, 18px);
+  padding-right: clamp(11px, 0.85vw, 18px);
+}
+
+.top-bar-icon {
+  position: relative;
+  width: clamp(18px, 1.25vw, 25px);
+  height: clamp(18px, 1.25vw, 25px);
+  fill: currentColor;
+  display: block;
+}
+
+/* The profile closes the dock, separated by a hairline so it reads as the
+   account rather than another section. */
+.top-bar-profile {
+  margin-left: clamp(4px, 0.4vw, 10px);
+  padding-left: clamp(7px, 0.55vw, 13px);
+  border-left: 1px solid rgb(var(--secondary-color-rgb) / 0.12);
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+
+.top-bar-avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(24px, 1.75vw, 36px);
+  height: clamp(24px, 1.75vw, 36px);
+  margin-right: clamp(6px, 0.5vw, 11px);
+  border-radius: 7px;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: clamp(12px, 0.9vw, 17px);
+  font-weight: 700;
+  flex: none;
+}
+
+.top-bar-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Content sits under the dock, so every screen showing one needs room at the
+   top. Applied to the shell so the measurement lives in one place. */
+.has-top-bar {
+  --top-bar-height: clamp(62px, 6.8vh, 100px);
+  padding-top: var(--top-bar-height);
+}
+
+/* Shorter transitions on a TV: during a route switch the screen is being
+   replaced anyway, and a long pill animation only delays the first frame. */
+.performance-constrained .top-bar-item,
+.performance-constrained .top-bar-item::before {
+  transition-duration: 140ms;
+}

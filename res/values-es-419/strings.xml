@@ -2568,4 +2568,20 @@
     <string name="subtitle_generate_failed">No se pudieron generar los subtítulos: %1$s</string>
     <string name="subtitle_generate_no_source">Esta transmisión no tiene subtítulos para traducir.</string>
     <string name="iptv_categories">Categorías</string>
+    <string name="topbar.home">Inicio</string>
+    <string name="topbar.series">Series</string>
+    <string name="topbar.movies">Películas</string>
+    <string name="topbar.sports">Deportes</string>
+    <string name="topbar.tv">TV</string>
+    <string name="topbar.myProfile">Mi Perfil</string>
+    <string name="topbar.ariaLabel">Navegación principal</string>
+    <string name="tab.seriesTitle">Series</string>
+    <string name="tab.moviesTitle">Películas</string>
+    <string name="tab.sportsTitle">Deportes</string>
+    <string name="tab.empty">Todavía no hay nada aquí.</string>
+    <string name="tab.emptyHint">Las filas aparecen cuando un complemento ofrece este tipo de contenido.</string>
+    <string name="myProfile.title">Mi Perfil</string>
+    <string name="myProfile.library">Mi lista</string>
+    <string name="myProfile.switchProfile">Cambiar de perfil</string>
+    <string name="myProfile.settings">Configuración</string>
 </resources>

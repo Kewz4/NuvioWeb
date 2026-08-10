@@ -2870,4 +2870,20 @@
     <string name="subtitle_generate_failed">Could not generate subtitles: %1$s</string>
     <string name="subtitle_generate_no_source">This stream has no subtitle track to translate from.</string>
     <string name="iptv_categories">Categories</string>
+    <string name="topbar.home">Home</string>
+    <string name="topbar.series">Shows</string>
+    <string name="topbar.movies">Movies</string>
+    <string name="topbar.sports">Sports</string>
+    <string name="topbar.tv">TV</string>
+    <string name="topbar.myProfile">My Profile</string>
+    <string name="topbar.ariaLabel">Main navigation</string>
+    <string name="tab.seriesTitle">Shows</string>
+    <string name="tab.moviesTitle">Movies</string>
+    <string name="tab.sportsTitle">Sports</string>
+    <string name="tab.empty">Nothing here yet.</string>
+    <string name="tab.emptyHint">Rows appear here once an addon provides this kind of content.</string>
+    <string name="myProfile.title">My Profile</string>
+    <string name="myProfile.library">My list</string>
+    <string name="myProfile.switchProfile">Switch profile</string>
+    <string name="myProfile.settings">Settings</string>
 </resources>

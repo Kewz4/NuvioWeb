@@ -1,0 +1,100 @@
+// What each top-bar tab shows.
+//
+// The tabs are the home screen with a filter applied, not new screens. That is
+// deliberate: one screen object means the TV holds one set of row nodes, one
+// navigation model and one scroll controller however many tabs exist, and every
+// improvement to the home rows lands on all of them at once.
+//
+// The type names are the ones the installed addons actually declare, not a
+// guess: movie and series from the metadata addons, sport from the sports addon,
+// and the anime.* variants that some addons use for the same two kinds of thing.
+
+import { I18n } from "../../../i18n/index.js";
+
+const t = (key, params, fallback) => I18n.t(key, params, fallback);
+
+export const HOME_ROUTE = "home";
+
+const TABS = {
+  series: {
+    route: "series",
+    prefsScope: "series",
+    titleKey: "tab.seriesTitle",
+    titleFallback: "Series",
+    // An anime series is a series. Addons that split it out would otherwise
+    // drop those rows from the only tab where someone would look for them.
+    types: ["series", "anime.series"]
+  },
+  movies: {
+    route: "movies",
+    prefsScope: "movies",
+    titleKey: "tab.moviesTitle",
+    titleFallback: "Películas",
+    types: ["movie", "anime.movie"]
+  },
+  sports: {
+    route: "sports",
+    prefsScope: "sports",
+    titleKey: "tab.sportsTitle",
+    titleFallback: "Deportes",
+    // "events" is what one of the installed addons calls its fixtures; a match
+    // is a match whichever word the manifest chose.
+    types: ["sport", "sports", "events", "event"]
+  }
+};
+
+/** The tab a route describes, or null for Home and everything else. */
+export function getHomeTab(route = "") {
+  return TABS[String(route || "").trim()] || null;
+}
+
+export function isHomeTabRoute(route = "") {
+  return Boolean(getHomeTab(route));
+}
+
+export function homeTabTitle(route = "") {
+  const tab = getHomeTab(route);
+  return tab ? t(tab.titleKey, {}, tab.titleFallback) : "";
+}
+
+/**
+ * Whether a catalog of this type belongs on this tab.
+ *
+ * Matching is case-insensitive and ignores an addon's own prefix, so
+ * "Anime.Series" and "series" both land on Series.
+ */
+export function tabAcceptsType(route = "", type = "") {
+  const tab = getHomeTab(route);
+  if (!tab) {
+    // Home takes everything. It is the one page that is not a filter.
+    return true;
+  }
+  const normalized = String(type || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return tab.types.some((accepted) => accepted.toLowerCase() === normalized);
+}
+
+/** Keeps only the catalogs or rows a tab should show. */
+export function filterByTabType(route = "", entries = []) {
+  if (!isHomeTabRoute(route)) {
+    return Array.isArray(entries) ? entries : [];
+  }
+  return (Array.isArray(entries) ? entries : []).filter((entry) =>
+    tabAcceptsType(route, entry?.type)
+  );
+}
+
+/**
+ * Whether this route shows the hero and Continue Watching.
+ *
+ * Home only. A tab is a shelf of one kind of thing, and putting a half-watched
+ * film at the top of Deportes — or spending the extra requests a hero costs on
+ * every tab switch — would work against both the point and the speed of it.
+ */
+export function showsHomeChrome(route = "") {
+  return !isHomeTabRoute(route);
+}

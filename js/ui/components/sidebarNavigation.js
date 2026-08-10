@@ -3,6 +3,13 @@ import { ProfileManager } from "../../core/profile/profileManager.js";
 import { AvatarRepository } from "../../data/remote/supabase/avatarRepository.js";
 import { I18n } from "../../i18n/index.js";
 import { Platform } from "../../platform/index.js";
+import {
+  bindTopBarEvents,
+  getTopBarNodes,
+  getTopBarSelectedNode,
+  isTopBarNode,
+  renderTopBar
+} from "./topBarNavigation.js";
 
 const ROOT_SIDEBAR_ITEMS = [
   {
@@ -449,6 +456,11 @@ export function renderRootSidebar({
   expanded = false,
   pillIconOnly = false
 } = {}) {
+  // Every screen that shows navigation goes through here, so switching the app
+  // between a sidebar and a top bar is one branch rather than seven edits.
+  if (layout?.topBarNavigation) {
+    return renderTopBar({ selectedRoute, profile });
+  }
   if (layout?.modernSidebar) {
     return renderModernSidebar({
       selectedRoute,
@@ -465,6 +477,14 @@ export function bindRootSidebarEvents(
   container,
   { currentRoute = "", onExpandSidebar = null, onSelectedAction = null } = {}
 ) {
+  if (container?.querySelector(".top-bar")) {
+    // The shell has to make room for a bar that floats over it. Done here
+    // rather than in each screen's markup so the measurement lives once.
+    container.querySelector(".top-bar")?.parentElement?.classList.add("has-top-bar");
+    bindTopBarEvents(container, { currentRoute, onSelectedAction });
+    return;
+  }
+
   const focusables = Array.from(
     container?.querySelectorAll(".home-sidebar .focusable, .modern-sidebar-panel .focusable") || []
   );
@@ -636,19 +656,25 @@ export function getModernSidebarSelectedNode(container) {
 }
 
 export function getRootSidebarNodes(container, layout = {}) {
+  if (layout?.topBarNavigation) {
+    return getTopBarNodes(container);
+  }
   return layout?.modernSidebar
     ? getModernSidebarNodes(container)
     : getLegacySidebarNodes(container);
 }
 
 export function getRootSidebarSelectedNode(container, layout = {}) {
+  if (layout?.topBarNavigation) {
+    return getTopBarSelectedNode(container);
+  }
   return layout?.modernSidebar
     ? getModernSidebarSelectedNode(container)
     : getLegacySidebarSelectedNode(container);
 }
 
 export function isRootSidebarNode(node) {
-  return Boolean(node?.closest?.(".home-sidebar, .modern-sidebar-panel"));
+  return Boolean(node?.closest?.(".home-sidebar, .modern-sidebar-panel")) || isTopBarNode(node);
 }
 
 export function setModernSidebarPillIconOnly(container, iconOnly, keepExpanded = false) {

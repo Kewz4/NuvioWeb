@@ -22,6 +22,10 @@ const DEFAULTS = {
   blurUnwatchedEpisodes: false,
   collapseSidebar: false,
   modernSidebar: false,
+  // A floating top bar instead of a left sidebar. On by default in this build:
+  // the sections read as words rather than icons, which is the whole point for
+  // a household that should not have to learn what a glyph means.
+  topBarNavigation: true,
   modernSidebarBlur: false,
   hideUnreleasedContent: false,
   useEpisodeThumbnailsInCw: true,
@@ -47,7 +51,10 @@ function normalizeLayoutPreferences(value = {}) {
     ...DEFAULTS,
     ...(value || {})
   };
-  const modernSidebar = Boolean(merged.modernSidebar);
+  const topBarNavigation = merged.topBarNavigation !== false;
+  // The two are alternatives, not layers: with the bar up there is no sidebar
+  // to expand, collapse, or keep a pill for.
+  const modernSidebar = !topBarNavigation && Boolean(merged.modernSidebar);
 
   return {
     ...merged,
@@ -74,7 +81,8 @@ function normalizeLayoutPreferences(value = {}) {
     showUnairedNextUp: merged.showUnairedNextUp !== false,
     nextUpFromFurthestEpisode: merged.nextUpFromFurthestEpisode !== false,
     continueWatchingSortMode: normalizeContinueWatchingSortMode(merged.continueWatchingSortMode),
-    collapseSidebar: modernSidebar ? false : Boolean(merged.collapseSidebar),
+    topBarNavigation,
+    collapseSidebar: modernSidebar || topBarNavigation ? false : Boolean(merged.collapseSidebar),
     modernSidebar,
     modernSidebarBlur: modernSidebar
       ? Boolean(merged.modernSidebarBlur)
