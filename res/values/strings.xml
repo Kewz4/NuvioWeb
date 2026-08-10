@@ -2886,4 +2886,6 @@
     <string name="myProfile.library">My list</string>
     <string name="myProfile.switchProfile">Switch profile</string>
     <string name="myProfile.settings">Settings</string>
+    <string name="tab.manageRows">Manage rows</string>
+    <string name="tab.manageRowsFor">Rows — %1$s</string>
 </resources>

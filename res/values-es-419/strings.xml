@@ -2584,4 +2584,6 @@
     <string name="myProfile.library">Mi lista</string>
     <string name="myProfile.switchProfile">Cambiar de perfil</string>
     <string name="myProfile.settings">Configuración</string>
+    <string name="tab.manageRows">Organizar filas</string>
+    <string name="tab.manageRowsFor">Filas — %1$s</string>
 </resources>

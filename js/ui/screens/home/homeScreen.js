@@ -4281,6 +4281,13 @@ export const HomeScreen = {
           : t("hero_mark_watched", {}, "Mark as watched")
       });
     }
+    // Reached by holding a card on the page whose rows it arranges, so it edits
+    // the tab the viewer is looking at. Buried in Settings it could only ever
+    // edit Home's, which is why the tabs had a store nobody could reach.
+    options.push({
+      action: "manageRows",
+      label: t("tab.manageRows", {}, "Organizar filas")
+    });
     return options;
   },
 
@@ -5301,6 +5308,14 @@ export const HomeScreen = {
       return this.openPosterListPicker(item);
     } else if (option.action === "toggleWatched") {
       await this.togglePosterWatched(item);
+    } else if (option.action === "manageRows") {
+      this.posterHoldMenu = null;
+      this.holdMenuScrollState = null;
+      this.unlockHomeHoldFocus();
+      // Carries the tab so the screen edits these rows and not Home's. An empty
+      // scope means Home, which is what every other entry point passes.
+      Router.navigate("catalogOrder", { scope: this.isTabRoute() ? this.activeRoute : "" });
+      return true;
     } else {
       return false;
     }

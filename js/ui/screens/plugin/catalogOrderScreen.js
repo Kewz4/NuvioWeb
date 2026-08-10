@@ -3,6 +3,8 @@ import { I18n } from "../../../i18n/index.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { HomeCatalogStore } from "../../../data/local/homeCatalogStore.js";
+import { getTabCatalogStore } from "../../../data/local/tabCatalogStore.js";
+import { filterByTabType, homeTabTitle, isHomeTabRoute } from "../home/homeTabs.js";
 import { CollectionsStore } from "../../../data/local/collectionsStore.js";
 import {
   buildOrderedHomeCatalogItems,
@@ -28,7 +30,26 @@ function t(key, params = {}, fallback = "") {
 }
 
 export const CatalogOrderScreen = {
-  async mount() {
+  /**
+   * The preference store this screen is editing.
+   *
+   * Opened from a tab it edits that tab's arrangement; opened from settings it
+   * edits Home's, which is what it has always done. Resolved per call rather
+   * than cached so returning to it after switching tabs cannot edit the last
+   * tab's rows by mistake.
+   */
+  prefsStore() {
+    return getTabCatalogStore(this.scope) || HomeCatalogStore;
+  },
+
+  /** The rows this scope is allowed to arrange. */
+  scopedItems(items = []) {
+    return filterByTabType(this.scope, items);
+  },
+
+  async mount(params = {}) {
+    // "" means Home, which keeps every existing entry point working unchanged.
+    this.scope = isHomeTabRoute(params?.scope) ? String(params.scope) : "";
     this.container = document.getElementById("catalogOrder");
     ScreenUtils.show(this.container);
     this.focusRow = Number.isFinite(this.focusRow) ? this.focusRow : 0;
@@ -39,14 +60,18 @@ export const CatalogOrderScreen = {
   async collectModel() {
     const addons = await addonRepository.getInstalledAddons();
     const collections = CollectionsStore.get();
-    const prefs = HomeCatalogStore.get();
+    const prefs = this.prefsStore().get();
     return {
-      items: buildOrderedHomeCatalogItems(
-        addons,
-        collections,
-        prefs.order,
-        prefs.disabled,
-        prefs.customTitles
+      // A tab may only arrange its own rows; offering Home's whole list would
+      // let someone reorder films from inside Deportes and see nothing happen.
+      items: this.scopedItems(
+        buildOrderedHomeCatalogItems(
+          addons,
+          this.scope ? [] : collections,
+          prefs.order,
+          prefs.disabled,
+          prefs.customTitles
+        )
       )
     };
   },
@@ -132,13 +157,13 @@ export const CatalogOrderScreen = {
     const reordered = [...current];
     const moved = reordered.splice(index, 1)[0];
     reordered.splice(nextIndex, 0, moved);
-    HomeCatalogStore.setOrder(reordered);
+    this.prefsStore().setOrder(reordered);
     this.focusRow = nextIndex;
     await this.render();
   },
 
   async toggleItem(disableKey) {
-    HomeCatalogStore.toggleDisabled(disableKey);
+    this.prefsStore().toggleDisabled(disableKey);
     await this.render();
   },
 
@@ -146,7 +171,7 @@ export const CatalogOrderScreen = {
     this.model = await this.collectModel();
     // Read once per render rather than per card: the store deserialises on
     // every get, and this screen lists every catalogue the household has.
-    const rowLayouts = HomeCatalogStore.get().rowLayouts || {};
+    const rowLayouts = this.prefsStore().get().rowLayouts || {};
     this.model.items = this.model.items.map((item) => ({
       ...item,
       rowLayout: rowLayouts[item.key] || ""
@@ -218,7 +243,15 @@ export const CatalogOrderScreen = {
     this.container.innerHTML = `
       <div class="catalog-order-shell">
         <main class="catalog-order-main">
-          <h1 class="catalog-order-title">Reorder Home Catalogs</h1>
+          <h1 class="catalog-order-title">${escapeHtml(
+            this.scope
+              ? t(
+                  "tab.manageRowsFor",
+                  { tab: homeTabTitle(this.scope) },
+                  `Rows — ${homeTabTitle(this.scope)}`
+                )
+              : t("catalog_order_title", {}, "Organizar filas de Inicio")
+          )}</h1>
           <p class="catalog-order-subtitle">This controls catalog row order on Home (Classic + Modern + Grid).</p>
           <section class="catalog-order-list">
             ${this.model.items.length ? itemsHtml : '<p class="catalog-order-empty">No home catalogs available yet.</p>'}
@@ -270,9 +303,9 @@ export const CatalogOrderScreen = {
     if (!key) {
       return;
     }
-    const current = HomeCatalogStore.getRowLayout(key);
+    const current = this.prefsStore().getRowLayout(key);
     const next = current === "" ? "poster" : current === "poster" ? "landscape" : "";
-    HomeCatalogStore.setRowLayout(key, next);
+    this.prefsStore().setRowLayout(key, next);
     await this.render();
   },
 
