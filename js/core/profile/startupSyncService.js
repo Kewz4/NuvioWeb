@@ -127,10 +127,14 @@ export const StartupSyncService = {
       try {
         const profiles = await ProfileSyncService.pull();
         const profileIds = await collectKnownProfileIds(profiles);
-        for (const profileId of profileIds) {
-          didApplyProfileSettings =
-            (await ProfileSettingsSyncService.pull(profileId)) || didApplyProfileSettings;
-        }
+        // One request per profile, asked together rather than in turn. Each is a
+        // full round trip — about 400 ms from a TV in El Salvador — and a
+        // household with three profiles was paying for all three back to back
+        // before anything could be drawn.
+        const appliedSettings = await Promise.all(
+          profileIds.map((profileId) => ProfileSettingsSyncService.pull(profileId))
+        );
+        didApplyProfileSettings = appliedSettings.some(Boolean) || didApplyProfileSettings;
         if (didApplyProfileSettings) {
           await I18n.init();
           ThemeManager.apply();
@@ -140,13 +144,23 @@ export const StartupSyncService = {
         if (!includeProfileScoped) {
           return didApplyProfileSettings;
         }
-        await CollectionSyncService.pull();
-        await HomeCatalogSettingsSyncService.pull();
-        await PluginSyncService.pull();
-        await LibrarySyncService.pull();
-        await SavedLibrarySyncService.pull();
-        await WatchedItemsSyncService.pull();
-        await WatchProgressSyncService.pull();
+        // Seven independent reads that were awaited one after another, so their
+        // latencies added up instead of overlapping: measured at roughly 2.8 s
+        // of the startup, all of it spent waiting rather than working. Each
+        // writes to its own store, so there is no order between them to keep.
+        //
+        // Promise.all rather than allSettled on purpose: one failure should
+        // still fail the attempt and be retried, exactly as it did when these
+        // ran in sequence.
+        await Promise.all([
+          CollectionSyncService.pull(),
+          HomeCatalogSettingsSyncService.pull(),
+          PluginSyncService.pull(),
+          LibrarySyncService.pull(),
+          SavedLibrarySyncService.pull(),
+          WatchedItemsSyncService.pull(),
+          WatchProgressSyncService.pull()
+        ]);
         return didApplyProfileSettings;
       } catch (error) {
         console.warn(`Startup sync pull failed (attempt ${attempt}/${MAX_PULL_ATTEMPTS})`, error);

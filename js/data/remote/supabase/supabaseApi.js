@@ -12,14 +12,45 @@ function buildHeaders(extra = {}, useSession = true) {
   return headers;
 }
 
+// Reads that several callers ask for at once during startup. Three separate
+// parts of the app pull the profile settings blob and the home catalog settings
+// on every launch, each paying a full round trip for the same answer — about
+// 400 ms apiece on a TV. Coalescing means the second and third callers wait on
+// the first request instead of opening their own.
+//
+// Deliberately only reads. A repeated write may well be intended, and folding
+// two pushes into one would lose the second.
+const COALESCABLE_RPC = /^(sync_pull_|get_)/;
+const inFlightReads = new Map();
+
 export const SupabaseApi = {
   rpc(functionName, body = {}, useSession = true) {
-    return httpRequest(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
-      method: "POST",
-      headers: buildHeaders({ "Content-Type": "application/json" }, useSession),
-      includeSessionAuth: useSession,
-      body: JSON.stringify(body)
+    const request = () =>
+      httpRequest(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
+        method: "POST",
+        headers: buildHeaders({ "Content-Type": "application/json" }, useSession),
+        includeSessionAuth: useSession,
+        body: JSON.stringify(body)
+      });
+
+    if (!COALESCABLE_RPC.test(String(functionName || ""))) {
+      return request();
+    }
+
+    // The body is part of the key: pulling two different profiles' settings is
+    // two different questions.
+    const key = `${functionName}|${useSession}|${JSON.stringify(body || {})}`;
+    const existing = inFlightReads.get(key);
+    if (existing) {
+      return existing;
+    }
+    // Cleared the moment it settles, so this shares a request in flight and
+    // never caches a stale answer for the next caller.
+    const pending = request().finally(() => {
+      inFlightReads.delete(key);
     });
+    inFlightReads.set(key, pending);
+    return pending;
   },
 
   select(table, query = "", useSession = true) {
