@@ -7,6 +7,7 @@ import { watchedItemsRepository } from "../../../data/repository/watchedItemsRep
 import { watchedSeriesReconciliationService } from "../../../data/repository/watchedSeriesReconciliationService.js";
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
 import { WatchedItemsStore } from "../../../data/local/watchedItemsStore.js";
+import { resizeTmdbImage } from "../../../core/images/tmdbImageSize.js";
 import { getTabCatalogStore } from "../../../data/local/tabCatalogStore.js";
 import { filterByTabType, isHomeTabRoute, showsHomeChrome } from "./homeTabs.js";
 import {
@@ -3290,9 +3291,13 @@ export const HomeScreen = {
       options?.dampingRatio ?? MODERN_HOME_CONSTANTS.springScrollDampingRatio
     );
 
+    const startPosition = Number(container[property] || 0);
     const state = {
       target: nextValue,
-      position: Number(container[property] || 0),
+      position: startPosition,
+      // The last value actually written, so a frame that rounds to the same
+      // pixel writes nothing at all rather than dirtying the scroller again.
+      appliedPixel: Math.round(startPosition),
       velocity: 0,
       raf: null,
       lastTime: performance.now(),
@@ -3310,9 +3315,21 @@ export const HomeScreen = {
       const acceleration = -state.stiffness * displacement - state.damping * state.velocity;
       state.velocity += acceleration * deltaSeconds;
       state.position += state.velocity * deltaSeconds;
-      container[property] = state.position;
 
-      const remaining = Number(state.target || 0) - Number(container[property] || 0);
+      // Whole pixels only. A fractional scroll offset makes the compositor
+      // resample every tile behind the scroller each frame, which on a TV costs
+      // more than the movement it is expressing.
+      const nextPixel = Math.round(state.position);
+      if (nextPixel !== state.appliedPixel) {
+        container[property] = nextPixel;
+        state.appliedPixel = nextPixel;
+      }
+
+      // Measured against the simulation, never read back from the element.
+      // Writing a scroll offset and reading it in the same frame forces a
+      // synchronous layout flush — sixty times a second, for the whole of every
+      // focus move, which is most of what made this stutter on the TV.
+      const remaining = Number(state.target || 0) - state.position;
       if (
         Math.abs(remaining) <= state.precision &&
         Math.abs(state.velocity) <= state.velocityEpsilon
@@ -9350,7 +9367,15 @@ export const HomeScreen = {
         // which can miscalculate visibility inside the nested modern-home viewport.
         image.loading = "eager";
         image.removeAttribute("data-src");
-        image.src = src;
+        // Sized here rather than at render because this is the first moment the
+        // element's real width is known, and it is already measured just above.
+        // Addons routinely hand back TMDB's "original" bucket for a card a few
+        // hundred pixels wide; decoding happens largely on the main thread, so
+        // those spare pixels are taken directly out of the scroll animation.
+        image.src = resizeTmdbImage(
+          src,
+          image.clientWidth || image.parentElement?.clientWidth || 0
+        );
       });
     });
   },
