@@ -61,83 +61,35 @@ export function renderModernHomeLayout({
   const catalogSeeAllMap = new Map();
   const sectionsMarkup = [];
 
+  const rowSections = [];
   rows.forEach((rowData, rowIndex) => {
-    const isCollectionRow = rowData?.rowKind === "collection";
-    const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
-    const isLoading = rowData?.result?.status === "loading";
-    const rowItems = items.length ? items : rowData.loadingItems || [];
-    if (!rowItems.length) {
-      return;
+    const section = renderModernRowSection(rowData, rowIndex, {
+      rowItemLimit,
+      showPosterLabels,
+      showCatalogTypeSuffix,
+      preferLandscapePosters,
+      rowLayouts,
+      focusedRowKey,
+      focusedItemIndex,
+      materialisedRowKeys,
+      expandFocusedPoster,
+      createPosterCardMarkup,
+      formatCatalogRowTitle,
+      shouldDeferRowImages,
+      watchedTitleIds,
+      escapeHtml,
+      catalogSeeAllMap
+    });
+    if (section) {
+      rowSections.push(section);
+      sectionsMarkup.push(section.markup);
     }
-
-    const rowKey = String(rowData?.homeCatalogKey || buildModernRowKey(rowData));
-    const seeAllId = `${rowData.addonId || "addon"}_${rowData.catalogId || "catalog"}_${rowData.type || "movie"}`;
-    if (!isLoading && !isCollectionRow) {
-      catalogSeeAllMap.set(seeAllId, {
-        addonBaseUrl: rowData.addonBaseUrl || "",
-        addonId: rowData.addonId || "",
-        addonName: rowData.addonName || "",
-        catalogId: rowData.catalogId || "",
-        catalogName: rowData.catalogName || "",
-        type: rowData.type || "movie",
-        initialItems: items
-      });
-    }
-
-    const maxItems = Math.max(1, Number(rowItemLimit || 15));
-    const focusedItemLimit =
-      focusedRowKey === rowKey && Number.isFinite(focusedItemIndex)
-        ? Math.max(0, Number(focusedItemIndex)) + 1
-        : 0;
-    const fullItems = isCollectionRow
-      ? rowItems
-      : rowItems.slice(0, Math.max(maxItems, focusedItemLimit));
-    // A Set of null means "no windowing" — the legacy behaviour, and what the
-    // grid and classic layouts still get.
-    const isMaterialised = !materialisedRowKeys || materialisedRowKeys.has(rowKey);
-    const visibleItems = isMaterialised ? fullItems : fullItems.slice(0, 1);
-    const deferredCount = fullItems.length - visibleItems.length;
-    const rowTitle = isCollectionRow
-      ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
-      : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
-    const deferRowImages =
-      typeof shouldDeferRowImages === "function"
-        ? shouldDeferRowImages(rowIndex, rowKey, focusedRowKey)
-        : false;
-    const cardsMarkup = visibleItems
-      .map((item, itemIndex) =>
-        createPosterCardMarkup(
-          item,
-          rowIndex,
-          itemIndex,
-          rowData.type,
-          rowData,
-          showPosterLabels,
-          "modern",
-          expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
-          rowLayouts[rowKey] ? rowLayouts[rowKey] === "landscape" : preferLandscapePosters,
-          deferRowImages,
-          watchedTitleIds
-        )
-      )
-      .join("");
-
-    sectionsMarkup.push(`
-      <section class="home-row home-modern-row home-row-enter${deferredCount ? " is-virtualised" : ""}"
-               data-row-key="${escapeHtml(rowKey)}"
-               data-row-index="${rowIndex}"${deferredCount ? ` data-virtual-deferred="${deferredCount}"` : ""}>
-        <div class="home-row-head">
-          <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
-        </div>
-        <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
-          ${cardsMarkup}
-        </div>
-      </section>
-    `);
   });
 
   return {
     catalogSeeAllMap,
+    // Keyed markup so a caller can insert one row without rebuilding the page.
+    rowSections,
     markup: `
       <section class="home-modern-stage">
         ${
@@ -168,6 +120,110 @@ export function renderModernHomeLayout({
               ${sectionsMarkup.join("")}
             </div>
           </div>
+        </div>
+      </section>
+    `
+  };
+}
+
+/**
+ * One row's markup, and the key it belongs to.
+ *
+ * Extracted so the home screen can add a single row to a page that is already
+ * on screen. Rebuilding the whole shell to reveal one arriving row threw away
+ * every card and every decoded poster that had already been built, which is the
+ * most expensive thing this screen did.
+ */
+export function renderModernRowSection(rowData, rowIndex, options = {}) {
+  const {
+    rowItemLimit = 15,
+    showPosterLabels = true,
+    showCatalogTypeSuffix = true,
+    preferLandscapePosters = false,
+    rowLayouts = {},
+    focusedRowKey = "",
+    focusedItemIndex = -1,
+    materialisedRowKeys = null,
+    expandFocusedPoster = false,
+    createPosterCardMarkup,
+    formatCatalogRowTitle,
+    shouldDeferRowImages,
+    watchedTitleIds = null,
+    escapeHtml,
+    catalogSeeAllMap = null
+  } = options;
+
+  const isCollectionRow = rowData?.rowKind === "collection";
+  const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
+  const isLoading = rowData?.result?.status === "loading";
+  const rowItems = items.length ? items : rowData?.loadingItems || [];
+  if (!rowItems.length) {
+    return null;
+  }
+
+  const rowKey = String(rowData?.homeCatalogKey || buildModernRowKey(rowData));
+  if (catalogSeeAllMap && !isLoading && !isCollectionRow) {
+    const seeAllId = `${rowData.addonId || "addon"}_${rowData.catalogId || "catalog"}_${rowData.type || "movie"}`;
+    catalogSeeAllMap.set(seeAllId, {
+      addonBaseUrl: rowData.addonBaseUrl || "",
+      addonId: rowData.addonId || "",
+      addonName: rowData.addonName || "",
+      catalogId: rowData.catalogId || "",
+      catalogName: rowData.catalogName || "",
+      type: rowData.type || "movie",
+      initialItems: items
+    });
+  }
+
+  const maxItems = Math.max(1, Number(rowItemLimit || 15));
+  const focusedItemLimit =
+    focusedRowKey === rowKey && Number.isFinite(focusedItemIndex)
+      ? Math.max(0, Number(focusedItemIndex)) + 1
+      : 0;
+  const fullItems = isCollectionRow
+    ? rowItems
+    : rowItems.slice(0, Math.max(maxItems, focusedItemLimit));
+  // A null set means "no windowing" — what the grid and classic layouts get.
+  const isMaterialised = !materialisedRowKeys || materialisedRowKeys.has(rowKey);
+  const visibleItems = isMaterialised ? fullItems : fullItems.slice(0, 1);
+  const deferredCount = fullItems.length - visibleItems.length;
+
+  const rowTitle = isCollectionRow
+    ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
+    : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
+  const deferRowImages =
+    typeof shouldDeferRowImages === "function"
+      ? shouldDeferRowImages(rowIndex, rowKey, focusedRowKey)
+      : false;
+  const cardsMarkup = visibleItems
+    .map((item, itemIndex) =>
+      createPosterCardMarkup(
+        item,
+        rowIndex,
+        itemIndex,
+        rowData.type,
+        rowData,
+        showPosterLabels,
+        "modern",
+        expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
+        rowLayouts[rowKey] ? rowLayouts[rowKey] === "landscape" : preferLandscapePosters,
+        deferRowImages,
+        watchedTitleIds
+      )
+    )
+    .join("");
+
+  return {
+    key: rowKey,
+    markup: `
+      <section class="home-row home-modern-row home-row-enter${deferredCount ? " is-virtualised" : ""}"
+               data-row-key="${escapeHtml(rowKey)}"
+               data-row-index="${rowIndex}"${deferredCount ? ` data-virtual-deferred="${deferredCount}"` : ""}>
+        <div class="home-row-head">
+          <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
+        </div>
+        <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
+          ${cardsMarkup}
         </div>
       </section>
     `

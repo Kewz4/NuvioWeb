@@ -8919,6 +8919,85 @@ export const HomeScreen = {
     });
   },
 
+  /**
+   * What the shell is, as one string.
+   *
+   * If this has not changed, everything outside the rows — the dock, the hero,
+   * the layout classes — is still correct, and the rows can be updated in place
+   * instead of the page being thrown away and rebuilt.
+   */
+  shellSignature(layoutClass, showHeroSection) {
+    return [
+      layoutClass,
+      this.activeRoute,
+      this.layoutMode,
+      showHeroSection ? String(this.heroItem?.id || "hero") : "no-hero",
+      buildSidebarProfileSignature(this.sidebarProfile)
+    ].join("|");
+  },
+
+  /**
+   * Updates the rows of a page that is already on screen.
+   *
+   * The screen used to rebuild its entire shell on every render, and it renders
+   * every time a batch of catalogues arrives. Each rebuild discarded every card
+   * and every decoded poster that had already been built, only to build them
+   * again — the single most expensive thing this screen did, and the reason a
+   * loading page stuttered rather than filling in.
+   *
+   * Rows are matched by key: one already on screen is left exactly as it is,
+   * keeping its cards, its images and any focus inside it. New rows are
+   * inserted in place and departed ones removed.
+   *
+   * @returns {boolean} true when the page was updated without a rebuild.
+   */
+  reconcileRows(rowSections) {
+    const host = this.container?.querySelector(".home-modern-catalogs");
+    if (!host || !Array.isArray(rowSections)) {
+      return false;
+    }
+    const wanted = rowSections.filter(Boolean);
+    const wantedKeys = new Set(wanted.map((section) => section.key));
+    const existing = new Map();
+    host.querySelectorAll(":scope > .home-modern-row").forEach((node) => {
+      existing.set(String(node.dataset.rowKey || ""), node);
+    });
+
+    let changed = false;
+    existing.forEach((node, key) => {
+      if (!wantedKeys.has(key)) {
+        node.remove();
+        changed = true;
+      }
+    });
+
+    let previous = null;
+    wanted.forEach((section, index) => {
+      let node = existing.get(section.key);
+      if (!node) {
+        const fragment = document.createRange().createContextualFragment(section.markup);
+        node = fragment.firstElementChild;
+        if (!node) {
+          return;
+        }
+        changed = true;
+      }
+      // The row index is positional and the order can change between loads, so
+      // it is refreshed even for rows that were already here.
+      if (node.dataset.rowIndex !== String(index)) {
+        node.dataset.rowIndex = String(index);
+      }
+      const shouldFollow = previous ? previous.nextElementSibling : host.firstElementChild;
+      if (shouldFollow !== node) {
+        host.insertBefore(node, shouldFollow || null);
+        changed = true;
+      }
+      previous = node;
+    });
+
+    return changed;
+  },
+
   render() {
     const renderStart = HOME_PERF_DEBUG ? homePerfNow() : 0;
     this.cancelScheduledRender();
@@ -9048,6 +9127,7 @@ export const HomeScreen = {
     this.teardownGridStickyHeader();
 
     let mainContentMarkup = "";
+    let modernRowSections = [];
     let modernLayoutPayload = null;
 
     if (this.isInitialHomeLoading) {
@@ -9090,6 +9170,7 @@ export const HomeScreen = {
       });
       this.catalogSeeAllMap = modernLayoutPayload.catalogSeeAllMap;
       mainContentMarkup = modernLayoutPayload.markup;
+      modernRowSections = modernLayoutPayload.rowSections || [];
     } else {
       const continueHtml = renderContinueWatchingSection(
         showsHomeChrome(this.activeRoute) ? this.continueWatchingDisplay || [] : [],
@@ -9136,6 +9217,26 @@ export const HomeScreen = {
     const sidebarFocusLocked = Boolean(
       this.sidebarExpanded && retainedFocusState?.focusKind === "sidebar"
     );
+
+    // The fast path: the page is already up and only its rows have moved on.
+    // Everything below rebuilds the shell, which discards every card and every
+    // decoded poster already on screen — worth doing when the layout itself
+    // changed, and ruinous on the render that happens each time a batch of
+    // catalogues lands.
+    const signature = this.shellSignature(layoutClass, showHeroSection);
+    if (
+      this.layoutMode === "modern" &&
+      signature === this.renderedShellSignature &&
+      this.container.querySelector(".home-modern-catalogs") &&
+      this.reconcileRows(modernRowSections)
+    ) {
+      this.invalidateNavigationModel();
+      this.buildNavigationModel();
+      this.scheduleRowMaterialisation();
+      this.scheduleHomeLazyImageHydration();
+      return;
+    }
+    this.renderedShellSignature = signature;
 
     this.container.innerHTML = `
       <div class="home-shell home-screen-shell ${layoutClass}"${sizingStyle ? ` style="${escapeAttribute(sizingStyle)}"` : ""}>
