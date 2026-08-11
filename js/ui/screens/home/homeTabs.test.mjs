@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  defaultHiddenTabKeys,
   filterByTabType,
   getHomeTab,
   isHomeTabRoute,
@@ -96,4 +97,28 @@ test("emptying the result leaves the source intact", () => {
   const filtered = filterByTabType("home", rows);
   filtered.length = 0;
   assert.equal(rows.length, 2);
+});
+
+test("a collection is offered on every tab, because no type test can place it", () => {
+  // Its contents are whatever its owner put there, so the viewer decides.
+  ["series", "movies", "sports"].forEach((route) => {
+    assert.equal(tabAcceptsType(route, "collection"), true, route);
+  });
+});
+
+test("collections start hidden on a tab", () => {
+  // Offered in the organiser, off until turned on — otherwise every tab fills
+  // with folders nobody asked to see there. A built collection row carries
+  // rowKind "collection" but a type of "collection_folder", so matching on type
+  // alone missed all of them.
+  const rows = [
+    { rowKind: "collection", type: "collection_folder", homeCatalogKey: "collection_a" },
+    { type: "series", homeCatalogKey: "series_b" }
+  ];
+  assert.deepEqual(defaultHiddenTabKeys("series", rows), ["collection_a"]);
+});
+
+test("Home hides nothing by default", () => {
+  const rows = [{ rowKind: "collection", homeCatalogKey: "collection_a" }];
+  assert.deepEqual(defaultHiddenTabKeys("home", rows), []);
 });

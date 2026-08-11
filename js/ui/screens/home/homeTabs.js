@@ -16,7 +16,7 @@ function t(key, params = {}, fallback = key) {
   return I18n.t(key, params, { fallback });
 }
 
-export const HOME_ROUTE = "home";
+const COLLECTION_TYPE = "collection";
 
 const TABS = {
   series: {
@@ -78,7 +78,40 @@ export function tabAcceptsType(route = "", type = "") {
   if (!normalized) {
     return false;
   }
+  // A collection is whatever its owner put in it, so no type test can place it.
+  // Tabs offer them and let the viewer decide — hidden by default so a tab does
+  // not fill with folders nobody asked to see there.
+  if (isCollectionEntry({ type: normalized })) {
+    return true;
+  }
   return tab.types.some((accepted) => accepted.toLowerCase() === normalized);
+}
+
+/**
+ * Whether a row or catalog entry is a collection.
+ *
+ * Checked on rowKind first: a built collection row carries rowKind
+ * "collection" but a type of "collection_folder", so matching the type alone
+ * missed every one of them and the tabs filled with folders.
+ */
+function isCollectionEntry(entry = {}) {
+  if (String(entry?.rowKind || "").toLowerCase() === COLLECTION_TYPE) {
+    return true;
+  }
+  return String(entry?.type || "")
+    .toLowerCase()
+    .startsWith(COLLECTION_TYPE);
+}
+
+/** Collections start hidden on a tab; the viewer turns on the ones they want. */
+export function defaultHiddenTabKeys(route = "", entries = []) {
+  if (!isHomeTabRoute(route)) {
+    return [];
+  }
+  return (Array.isArray(entries) ? entries : [])
+    .filter(isCollectionEntry)
+    .map((entry) => String(entry?.homeCatalogKey || entry?.homeCatalogDisableKey || "").trim())
+    .filter(Boolean);
 }
 
 /**

@@ -64,10 +64,12 @@ export const CatalogOrderScreen = {
     return {
       // A tab may only arrange its own rows; offering Home's whole list would
       // let someone reorder films from inside Deportes and see nothing happen.
+      // Collections are the exception — they are whatever their owner put in
+      // them, so every scope offers them and the viewer decides.
       items: this.scopedItems(
         buildOrderedHomeCatalogItems(
           addons,
-          this.scope ? [] : collections,
+          collections,
           prefs.order,
           prefs.disabled,
           prefs.customTitles

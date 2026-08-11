@@ -9,7 +9,12 @@ import { savedLibraryRepository } from "../../../data/repository/savedLibraryRep
 import { WatchedItemsStore } from "../../../data/local/watchedItemsStore.js";
 import { resizeTmdbImage } from "../../../core/images/tmdbImageSize.js";
 import { getTabCatalogStore } from "../../../data/local/tabCatalogStore.js";
-import { filterByTabType, isHomeTabRoute, showsHomeChrome } from "./homeTabs.js";
+import {
+  defaultHiddenTabKeys,
+  filterByTabType,
+  isHomeTabRoute,
+  showsHomeChrome
+} from "./homeTabs.js";
 import {
   buildSurprisePool,
   pickSurprise,
@@ -2718,6 +2723,24 @@ export function createPosterCardMarkup(
   `;
 }
 
+// Home and the tabs share this screen object, so "am I still on the page I
+// started loading for?" cannot be written as a literal "home": on a tab the
+// route is series, movies or sports, and every guard spelled that way reports
+// that the viewer has navigated away.
+//
+// That is why enabling a row on a tab did nothing. Only the first few
+// catalogues are fetched up front; the rest arrive in deferred batches, and
+// every one of those batches was being discarded on arrival.
+let activeHomeRoute = "home";
+
+function setActiveHomeRoute(route) {
+  activeHomeRoute = String(route || "home");
+}
+
+function isOnHomeRoute() {
+  return Router.getCurrent() === activeHomeRoute;
+}
+
 export const HomeScreen = {
   getRouteStateKey() {
     return "home";
@@ -2959,7 +2982,7 @@ export const HomeScreen = {
       return;
     }
     const restore = () => {
-      if (Router.getCurrent() !== "home") {
+      if (!isOnHomeRoute()) {
         return;
       }
       if (this.applyReturnFocusStateNow(focusState)) {
@@ -3717,11 +3740,7 @@ export const HomeScreen = {
     this.deferredContinueWatchingFocusTimer = setTimeout(
       () => {
         this.deferredContinueWatchingFocusTimer = null;
-        if (
-          Router.getCurrent() !== "home" ||
-          !target.isConnected ||
-          this.getCurrentFocusedNode() !== target
-        ) {
+        if (!isOnHomeRoute() || !target.isConnected || this.getCurrentFocusedNode() !== target) {
           return;
         }
         this.scheduleModernHeroUpdate(target);
@@ -3794,7 +3813,7 @@ export const HomeScreen = {
   },
 
   requestRender(options = {}) {
-    if (!this.container || Router.getCurrent() !== "home") {
+    if (!this.container || !isOnHomeRoute()) {
       return;
     }
     const delayMs = Math.max(0, Number(options?.delayMs || 0));
@@ -3821,7 +3840,7 @@ export const HomeScreen = {
     }
     this.homeRenderFrame = requestAnimationFrame(() => {
       this.homeRenderFrame = null;
-      if (!this.container || Router.getCurrent() !== "home") {
+      if (!this.container || !isOnHomeRoute()) {
         return;
       }
       this.render();
@@ -4910,7 +4929,7 @@ export const HomeScreen = {
     this.pendingContinueWatchingHoldTimer = setTimeout(() => {
       this.pendingContinueWatchingHoldTimer = null;
       const pending = this.pendingContinueWatchingHoldTarget;
-      if (!pending || Router.getCurrent() !== "home") {
+      if (!pending || !isOnHomeRoute()) {
         return;
       }
       const current =
@@ -4971,7 +4990,7 @@ export const HomeScreen = {
       this.pendingContinueWatchingEnterTimer = null;
       const pending = this.pendingContinueWatchingEnterTarget;
       this.pendingContinueWatchingEnterTarget = null;
-      if (!pending || Router.getCurrent() !== "home") {
+      if (!pending || !isOnHomeRoute()) {
         return;
       }
       const current =
@@ -6548,7 +6567,7 @@ export const HomeScreen = {
       this.layoutPrefs?.modernSidebar &&
       !this.sidebarExpanded &&
       !this.pillIconOnly &&
-      Router.getCurrent() === "home"
+      isOnHomeRoute()
     );
     if (!shouldSchedule) {
       this.cancelModernSidebarPillAutoCollapse();
@@ -6562,7 +6581,7 @@ export const HomeScreen = {
       this.modernSidebarPillAutoCollapseTimer = null;
       const shell = this.container?.querySelector(".modern-sidebar-shell");
       if (
-        Router.getCurrent() !== "home" ||
+        !isOnHomeRoute() ||
         !this.layoutPrefs?.modernSidebar ||
         this.sidebarExpanded ||
         !shell ||
@@ -6975,7 +6994,7 @@ export const HomeScreen = {
     const state = this.modernCameraFollowState || null;
     this.modernCameraFollowTimer = null;
     this.modernCameraFollowState = null;
-    if (!state || Router.getCurrent() !== "home" || this.layoutMode !== "modern") {
+    if (!state || !isOnHomeRoute() || this.layoutMode !== "modern") {
       return;
     }
     if (state.deferred) {
@@ -7187,7 +7206,7 @@ export const HomeScreen = {
     }
     this.homeViewportFocusSyncTimer = setTimeout(() => {
       this.homeViewportFocusSyncTimer = null;
-      if (Router.getCurrent() !== "home") {
+      if (!isOnHomeRoute()) {
         return;
       }
       this.syncMainFocusToViewport({ suppressFlows: true });
@@ -8039,6 +8058,7 @@ export const HomeScreen = {
     // and it has to be settled first because the preference store, the catalog
     // filter and the chrome all key off it.
     this.activeRoute = Router.getCurrent() || "home";
+    setActiveHomeRoute(this.activeRoute);
     this.container = document.getElementById("home");
     const restoredRouteFocusState =
       navigationContext?.isBackNavigation && navigationContext?.restoredState?.layoutMode
@@ -8244,7 +8264,7 @@ export const HomeScreen = {
       watchProgressRepository.getContinueWatchingSource?.() !== "trakt";
     const watchedItemsPromise = watchedItemsRepository.getAll(2000).catch(() => []);
     watchedItemsPromise.then((watchedItems) => {
-      if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+      if (token !== this.homeLoadToken || !isOnHomeRoute()) {
         return;
       }
       this.watchedItems = Array.isArray(watchedItems) ? watchedItems : [];
@@ -8268,7 +8288,7 @@ export const HomeScreen = {
       if (!waitForInitialContinueWatching || initialContinueWatchingReleased) {
         return false;
       }
-      if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+      if (token !== this.homeLoadToken || !isOnHomeRoute()) {
         return false;
       }
       initialContinueWatchingReleased = true;
@@ -8339,7 +8359,7 @@ export const HomeScreen = {
     const initialRows = await this.fetchCatalogRows(initialDescriptors, {
       allowLoading: true,
       onRow: (row) => {
-        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        if (token !== this.homeLoadToken || !isOnHomeRoute()) {
           return;
         }
         if (preserveHomeReturnState) {
@@ -8426,7 +8446,7 @@ export const HomeScreen = {
     });
     const previousSidebarProfileSignature = buildSidebarProfileSignature(this.sidebarProfile);
     sidebarProfilePromise.then((profile) => {
-      if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+      if (token !== this.homeLoadToken || !isOnHomeRoute()) {
         return;
       }
       if (profile && buildSidebarProfileSignature(profile) !== previousSidebarProfileSignature) {
@@ -8444,7 +8464,7 @@ export const HomeScreen = {
           ? (batchRows) => {
               if (
                 token !== this.homeLoadToken ||
-                Router.getCurrent() !== "home" ||
+                !isOnHomeRoute() ||
                 !Array.isArray(batchRows) ||
                 !batchRows.length
               ) {
@@ -8469,7 +8489,7 @@ export const HomeScreen = {
           : null
       })
         .then((extraRows) => {
-          if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+          if (token !== this.homeLoadToken || !isOnHomeRoute()) {
             return;
           }
           const combinedByKey = new Map();
@@ -8492,7 +8512,7 @@ export const HomeScreen = {
     if (this.layoutMode !== "modern") {
       this.enrichHero(this.heroCandidates[0] || null)
         .then(() => {
-          if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+          if (token !== this.homeLoadToken || !isOnHomeRoute()) {
             return;
           }
           this.applyHeroToDom();
@@ -8504,7 +8524,7 @@ export const HomeScreen = {
 
     if (waitForInitialContinueWatching) {
       setTimeout(() => {
-        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        if (token !== this.homeLoadToken || !isOnHomeRoute()) {
           return;
         }
         releaseInitialHomeAfterContinueWatching();
@@ -8517,14 +8537,14 @@ export const HomeScreen = {
           progressAllPromise,
           recentProgressPromise
         ]);
-        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        if (token !== this.homeLoadToken || !isOnHomeRoute()) {
           return;
         }
         this.allProgress = Array.isArray(allProgress) ? allProgress : [];
         this.continueWatching = Array.isArray(continueWatching) ? continueWatching : [];
         this.watchedItems = await watchedItemsPromise;
         this.watchedTitleIds = buildWatchedTitleIdSet(this.watchedItems);
-        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        if (token !== this.homeLoadToken || !isOnHomeRoute()) {
           return;
         }
         this.nextUpProgressCandidates = this.selectNextUpProgressCandidates(
@@ -8588,7 +8608,7 @@ export const HomeScreen = {
             watchedItems: this.watchedItems,
             nextUpProgressCandidates: this.nextUpProgressCandidates
           });
-          if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+          if (token !== this.homeLoadToken || !isOnHomeRoute()) {
             return;
           }
           const nextDisplayStrict = buildVisibleContinueWatchingItems(enriched, {
@@ -8649,7 +8669,7 @@ export const HomeScreen = {
         }
       })().catch((error) => {
         console.warn("Continue watching load failed", error);
-        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        if (token !== this.homeLoadToken || !isOnHomeRoute()) {
           return;
         }
         this.continueWatchingLoading = false;
@@ -8770,13 +8790,13 @@ export const HomeScreen = {
   },
 
   sortAndFilterRows(rows = [], collections = []) {
-    // Collections are hand-made mixtures of films and series, so they belong to
-    // Home; showing one under Series would misrepresent what is in it.
-    const collectionRows = this.isTabRoute()
-      ? []
-      : (Array.isArray(collections) ? collections : [])
-          .map((collection) => buildCollectionHomeRow(collection))
-          .filter((row) => Array.isArray(row?.result?.data?.items) && row.result.data.items.length);
+    // Collections are hand-made mixtures, so no type test can place them. Tabs
+    // offer them and let the viewer decide; they start hidden there, seeded
+    // below, so a tab does not fill with folders nobody asked to see on it.
+    const collectionRows = (Array.isArray(collections) ? collections : [])
+      .map((collection) => buildCollectionHomeRow(collection))
+      .filter((row) => Array.isArray(row?.result?.data?.items) && row.result.data.items.length);
+
     const catalogRows = this.filterForActiveTab(
       (Array.isArray(rows) ? rows : []).filter((row) => row?.rowKind !== "collection")
     );
@@ -8784,7 +8804,9 @@ export const HomeScreen = {
       [...catalogRows, ...collectionRows].map((row) => [row.homeCatalogKey, row])
     );
     const allKeys = Array.from(rowMap.keys());
-    const orderedKeys = this.catalogPrefs().ensureOrderKeys(allKeys);
+    const orderedKeys = this.catalogPrefs().ensureOrderKeys(allKeys, {
+      hiddenByDefault: defaultHiddenTabKeys(this.activeRoute, [...collectionRows, ...catalogRows])
+    });
     const homeCatalogPrefs = this.catalogPrefs().get();
     const disabledKeys = new Set(homeCatalogPrefs.disabled || []);
     const customTitles = homeCatalogPrefs.customTitles || {};
@@ -8851,7 +8873,7 @@ export const HomeScreen = {
             };
           })
         );
-        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        if (token !== this.homeLoadToken || !isOnHomeRoute()) {
           return;
         }
         const updatedRows = settled
@@ -8882,7 +8904,7 @@ export const HomeScreen = {
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
-      if (hasBufferedUpdates && token === this.homeLoadToken && Router.getCurrent() === "home") {
+      if (hasBufferedUpdates && token === this.homeLoadToken && isOnHomeRoute()) {
         this.requestBackgroundRender();
       }
     })().finally(() => {
@@ -10595,7 +10617,7 @@ export const HomeScreen = {
       timer = setTimeout(
         () => {
           timer = 0;
-          if (!track.isConnected || Router.getCurrent() !== "home") {
+          if (!track.isConnected || !isOnHomeRoute()) {
             return;
           }
           const firstCard = track.querySelector(
@@ -10670,7 +10692,7 @@ export const HomeScreen = {
       const scheduleLiveTrackCatchUp = (delayMs = 0) => {
         setTimeout(
           () => {
-            if (Router.getCurrent() !== "home") {
+            if (!isOnHomeRoute()) {
               return;
             }
             const liveTrack =
@@ -10868,7 +10890,7 @@ export const HomeScreen = {
       let visibleCardCount = 1;
       const runWhenIdle = () => {
         scrollTimer = 0;
-        if (!track.isConnected || Router.getCurrent() !== "home") {
+        if (!track.isConnected || !isOnHomeRoute()) {
           return;
         }
         if (
@@ -10896,7 +10918,7 @@ export const HomeScreen = {
         }
         prefetchTimer = setTimeout(() => {
           prefetchTimer = 0;
-          if (!track.isConnected || Router.getCurrent() !== "home") {
+          if (!track.isConnected || !isOnHomeRoute()) {
             pendingPrefetchContext = null;
             return;
           }

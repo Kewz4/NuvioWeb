@@ -27,10 +27,6 @@ function unique(array) {
   return Array.from(new Set(array || []));
 }
 
-function sameArray(left = [], right = []) {
-  return left.length === right.length && left.every((entry, index) => entry === right[index]);
-}
-
 function normalizeStringMap(value = {}, allowed = null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -141,16 +137,26 @@ function createScopeApi(scope) {
      *
      * Appends, so a newly installed addon's catalogues land at the end rather
      * than disturbing an arrangement the viewer has already settled on.
+     *
+     * `hiddenByDefault` names keys that should start switched off — collections,
+     * which are whatever their owner put in them and so belong to no tab in
+     * particular. It applies only to keys being added here for the first time,
+     * in the same write: doing it in a second pass meant this one had already
+     * recorded the key, and the second pass read that as the viewer having seen
+     * it and left the collection showing.
      */
-    ensureOrderKeys(keys) {
+    ensureOrderKeys(keys, { hiddenByDefault = [] } = {}) {
       const current = readScope(scope);
       const saved = unique(current.order).filter(Boolean);
       const savedSet = new Set(saved);
       const missing = unique(keys || []).filter((key) => key && !savedSet.has(key));
-      const next = [...saved, ...missing];
-      if (!sameArray(current.order, next)) {
-        writeScope(scope, { order: next });
+      if (!missing.length) {
+        return saved;
       }
+      const next = [...saved, ...missing];
+      const hideNow = new Set(unique(hiddenByDefault).filter((key) => missing.includes(key)));
+      const disabled = hideNow.size ? unique([...current.disabled, ...hideNow]) : current.disabled;
+      writeScope(scope, { order: next, disabled });
       return next;
     },
 
