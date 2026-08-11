@@ -263,8 +263,9 @@ export const ScreenUtils = {
     // the navigation and the content as if they were one list — cards changing
     // while the dock had focus, and no way back up into it. The dock's keys are
     // owned by the focus engine instead.
+    const bar = container?.querySelector?.(".top-bar") || null;
     const list = Array.from(container?.querySelectorAll(selector) || []).filter(
-      (node) => !node.closest?.(".top-bar")
+      (node) => !bar || !bar.contains(node)
     );
     list.forEach((node, index) => {
       const indexValue = String(index);

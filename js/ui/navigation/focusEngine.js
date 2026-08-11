@@ -173,11 +173,7 @@ export const FocusEngine = {
     // — before the screen sees them. Letting both act is what allowed a screen
     // to move its own cards while the dock had focus, and left screens with no
     // linear route back up into it.
-    if (
-      handleTopBarKey(normalizedEvent, {
-        onLeaveDown: (node) => Boolean(currentScreen?.focusContentFromTopBar?.(node))
-      })
-    ) {
+    if (handleTopBarKey(normalizedEvent, currentScreen)) {
       return;
     }
 

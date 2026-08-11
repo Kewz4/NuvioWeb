@@ -491,10 +491,11 @@ export function bindRootSidebarEvents(
   container,
   { currentRoute = "", onExpandSidebar = null, onSelectedAction = null } = {}
 ) {
-  if (container?.querySelector(".top-bar")) {
+  const topBar = container?.querySelector?.(".top-bar") || null;
+  if (topBar) {
     // The shell has to make room for a bar that floats over it. Done here
     // rather than in each screen's markup so the measurement lives once.
-    container.querySelector(".top-bar")?.parentElement?.classList.add("has-top-bar");
+    topBar.parentElement?.classList.add("has-top-bar");
     bindTopBarEvents(container, { currentRoute, onSelectedAction });
     return;
   }

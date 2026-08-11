@@ -6,22 +6,31 @@
 // each; on a remote, a row of labelled words is one press away and reads
 // without being decoded.
 //
-// The bar is transparent over the top of a page and fades in a backdrop once
-// the content scrolls under it, so artwork is never boxed in by a permanent
-// band. Where the platform can afford it that backdrop is a real blur; on a TV
-// it is a gradient, because backdrop-filter is composited every frame and these
-// panels cannot pay for it (see applyPerformanceMode, which turns blur off for
-// all of Tizen).
+// The dock is app chrome, not part of any screen, so it owns its keys here and
+// the focus engine calls handleTopBarKey before handing anything to the screen.
+// Two owners is what produced the earlier bugs: screens moving their own cards
+// while the dock had focus, and arrow presses acted on twice.
+//
+// handleTopBarKey runs on every key press the app sees, including during
+// playback, so it is written to cost almost nothing when the answer is no: a
+// numeric gate first, then a held element reference, and no document queries at
+// all on the common path.
 
 import { Router } from "../navigation/router.js";
 import { I18n } from "../../i18n/index.js";
+import { escapeAttribute, escapeHtml } from "../screens/home/homeUtils.js";
 
-const t = (key, params, fallback) => I18n.t(key, params, fallback);
+// Matches the wrapper the rest of the UI uses. I18n.t reads options.fallback,
+// so a bare third argument is silently ignored — every fallback here was inert
+// until this took the same shape as sidebarNavigation's.
+function t(key, params = {}, fallback = key) {
+  return I18n.t(key, params, { fallback });
+}
 
 // Order is the user's: search, then sections left to right, then the profile.
 // "TV" keeps its short name rather than "Televisión en vivo" — it sits between
 // two longer words and the row has to stay scannable at three metres.
-export const TOP_BAR_ITEMS = [
+const TOP_BAR_ITEMS = [
   {
     action: "gotoSearch",
     route: "search",
@@ -58,12 +67,8 @@ const ROUTE_ALIASES = {
   catalogSeeAll: "home"
 };
 
-export function topBarItemLabel(item) {
-  return t(item?.labelKey, {}, item?.fallbackLabel || "");
-}
-
 /** The tab a route belongs to, following aliases. */
-export function resolveTopBarRoute(route = "") {
+function resolveTopBarRoute(route = "") {
   const normalized = String(route || "").trim();
   return ROUTE_ALIASES[normalized] || normalized;
 }
@@ -78,21 +83,13 @@ export function isSelectedTopBarAction(action = "", selectedRoute = "") {
   return Boolean(item) && item.route === resolveTopBarRoute(selectedRoute);
 }
 
-function escapeHtml(value = "") {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function profileAvatarMarkup(profile = {}) {
   const name = profile.activeProfileName || t("sidebar.profileFallback", {}, "Perfil");
   const background = profile.activeProfileColorHex || "#1e88e5";
   const inner = profile.activeProfileAvatarUrl
-    ? `<img class="top-bar-avatar-image" src="${escapeHtml(profile.activeProfileAvatarUrl)}" alt="" aria-hidden="true" />`
+    ? `<img class="top-bar-avatar-image" src="${escapeAttribute(profile.activeProfileAvatarUrl)}" alt="" aria-hidden="true" />`
     : escapeHtml(profile.activeProfileInitial || name.charAt(0).toUpperCase() || "P");
-  return `<span class="top-bar-avatar" style="background:${escapeHtml(background)}">${inner}</span>`;
+  return `<span class="top-bar-avatar" style="background:${escapeAttribute(background)}">${inner}</span>`;
 }
 
 /**
@@ -102,26 +99,26 @@ function profileAvatarMarkup(profile = {}) {
  * matching how every other chrome element in the app works; it is a handful of
  * nodes, so re-rendering it costs less than the bookkeeping to preserve it.
  */
-export function renderTopBar({ selectedRoute = "home", profile = null, scrolled = false } = {}) {
+export function renderTopBar({ selectedRoute = "home", profile = null } = {}) {
   const selected = resolveTopBarRoute(selectedRoute);
   const profileState = profile || {};
 
   const items = TOP_BAR_ITEMS.map((item, index) => {
     const isSelected = item.route === selected;
-    const label = topBarItemLabel(item);
+    const label = t(item.labelKey, {}, item.fallbackLabel);
     const body = item.isProfile
       ? `${profileAvatarMarkup(profileState)}<span class="top-bar-label">${escapeHtml(label)}</span>`
       : item.iconOnly
-        ? `<svg class="top-bar-icon" viewBox="${item.viewBox}" aria-hidden="true" focusable="false">${item.iconMarkup}</svg>`
+        ? `<svg class="top-bar-icon" viewBox="${escapeAttribute(item.viewBox)}" aria-hidden="true" focusable="false">${item.iconMarkup}</svg>`
         : `<span class="top-bar-label">${escapeHtml(label)}</span>`;
 
     return `
       <button class="top-bar-item focusable${isSelected ? " selected" : ""}${item.iconOnly ? " icon-only" : ""}${item.isProfile ? " top-bar-profile" : ""}"
               type="button"
-              data-nav-zone="sidebar"
+              data-nav-zone="topbar"
               data-nav-index="${index}"
-              data-action="${item.action}"
-              aria-label="${escapeHtml(label)}"
+              data-action="${escapeAttribute(item.action)}"
+              aria-label="${escapeAttribute(label)}"
               aria-current="${isSelected ? "page" : "false"}">
         ${body}
       </button>
@@ -129,49 +126,164 @@ export function renderTopBar({ selectedRoute = "home", profile = null, scrolled 
   }).join("");
 
   return `
-    <nav class="top-bar${scrolled ? " is-scrolled" : ""}" data-selected-route="${escapeHtml(selected)}" aria-label="${escapeHtml(t("topbar.ariaLabel", {}, "Navegación principal"))}">
+    <nav class="top-bar" data-selected-route="${escapeAttribute(selected)}" aria-label="${escapeAttribute(t("topbar.ariaLabel", {}, "Navegación principal"))}">
       <div class="top-bar-inner">${items}</div>
     </nav>
   `;
 }
 
-export function getTopBarNodes(container) {
-  return Array.from(container?.querySelectorAll(".top-bar .focusable") || []);
-}
+/* Key handling ------------------------------------------------------------- */
 
-export function getTopBarSelectedNode(container) {
-  return (
-    container?.querySelector(".top-bar .focusable.selected") ||
-    container?.querySelector(".top-bar .focusable") ||
-    null
-  );
+// The dock element, remembered when it is bound. Everything below used to find
+// it with a document-wide query on every key press — including keys the dock can
+// never act on, and on screens that have no dock at all. A held reference makes
+// the common answer a null check.
+let boundBar = null;
+let focusedDockNode = null;
+
+function liveBar() {
+  if (boundBar?.isConnected) {
+    return boundBar;
+  }
+  boundBar = null;
+  focusedDockNode = null;
+  return null;
 }
 
 export function isTopBarNode(node) {
   return Boolean(node?.closest?.(".top-bar"));
 }
 
-/**
- * Fades the backdrop in once content has scrolled under the bar.
- *
- * Toggles one class and nothing else: the transition is a CSS opacity change on
- * a layer that is already composited, so scrolling never triggers layout.
- */
-export function setTopBarScrolled(container, scrolled) {
-  const bar = container?.querySelector(".top-bar");
-  if (!bar) {
-    return;
+export function getTopBarNodes(container) {
+  if (!container) {
+    return [];
   }
-  bar.classList.toggle("is-scrolled", Boolean(scrolled));
+  // Accepts the dock itself or any ancestor of it.
+  const scope = container.classList?.contains("top-bar")
+    ? container
+    : container.querySelector?.(".top-bar");
+  return scope ? Array.from(scope.querySelectorAll(".focusable")) : [];
 }
 
-/** Runs a top bar action. Mirrors activateLegacySidebarAction's contract. */
-export function activateTopBarAction(action, currentRoute = "") {
-  const normalized = String(action || "").trim();
-  if (!normalized) {
-    return;
+export function getTopBarSelectedNode(container) {
+  if (!container) {
+    return null;
   }
-  const target = getTopBarItemForAction(normalized);
+  const scope = container.classList?.contains("top-bar")
+    ? container
+    : container.querySelector?.(".top-bar");
+  return scope
+    ? scope.querySelector(".focusable.selected") || scope.querySelector(".focusable")
+    : null;
+}
+
+/** The dock button that currently has focus, or null. */
+export function getFocusedTopBarNode() {
+  const bar = liveBar();
+  if (!bar) {
+    return null;
+  }
+  if (focusedDockNode?.isConnected) {
+    return focusedDockNode;
+  }
+  // Only reached after a re-render replaced the nodes we were holding.
+  focusedDockNode = bar.querySelector(".focusable.focused");
+  return focusedDockNode;
+}
+
+function focusDockNode(target) {
+  if (!target) {
+    return false;
+  }
+  getTopBarNodes(liveBar()).forEach((entry) => entry.classList.remove("focused"));
+  target.classList.add("focused");
+  focusedDockNode = target;
+  try {
+    target.focus({ preventScroll: true });
+  } catch (_) {
+    try {
+      target.focus();
+    } catch (_) {
+      // Some TV builds reject both; the focus class is what the app reads.
+    }
+  }
+  return true;
+}
+
+function moveWithinTopBar(node, delta) {
+  const nodes = getTopBarNodes(liveBar());
+  const index = nodes.indexOf(node);
+  if (index === -1) {
+    return false;
+  }
+  const target = nodes[Math.max(0, Math.min(nodes.length - 1, index + delta))];
+  if (!target || target === node) {
+    // At an end. Consumed anyway, so focus never escapes sideways into whatever
+    // happens to be next in the document.
+    return true;
+  }
+  return focusDockNode(target);
+}
+
+/**
+ * The first thing the content offers, ignoring the dock.
+ *
+ * Stops at the first hit rather than collecting every focusable and taking
+ * index zero — on Home that is a walk of one node instead of about 130.
+ */
+function firstContentFocusable() {
+  const bar = liveBar();
+  const root = bar?.closest?.(".screen");
+  for (const node of root?.querySelectorAll(".focusable") || []) {
+    if (!bar.contains(node) && node.offsetParent !== null) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether the focused content sits in the topmost row, so "up" means the dock.
+ *
+ * Asks the screen first, because a screen that models its own rows already knows
+ * this for free. The fallback measures two rectangles rather than every
+ * focusable on the page — which is what this did at first: roughly 130
+ * getBoundingClientRect calls and a forced full-page layout, on every press of
+ * up, on the device this was all meant to speed up.
+ */
+function isInTopmostContentRow(node, screen) {
+  if (!node || isTopBarNode(node)) {
+    return false;
+  }
+  const asked = screen?.isAtTopContentRow?.(node);
+  if (typeof asked === "boolean") {
+    return asked;
+  }
+  const row = node.dataset?.navRow;
+  if (row !== undefined) {
+    return row === "0";
+  }
+  const container = node.closest("main, .screen");
+  if (!container) {
+    return false;
+  }
+  const clearance = parseFloat(getComputedStyle(container).paddingTop) || 0;
+  // A row's cards are not pixel-aligned, so a tolerance keeps a whole row
+  // counting as the top one.
+  return (
+    node.getBoundingClientRect().top - (container.getBoundingClientRect().top + clearance) < 48
+  );
+}
+
+/**
+ * Runs a dock action.
+ *
+ * Exported because every screen routes its chrome clicks through
+ * activateLegacySidebarAction, which falls through to here for the sections the
+ * sidebar never had.
+ */
+export function activateTopBarAction(action, currentRoute = "") {
+  const target = getTopBarItemForAction(action);
   if (!target) {
     return;
   }
@@ -185,99 +297,25 @@ export function activateTopBarAction(action, currentRoute = "") {
   Router.navigate(target.route);
 }
 
-/** The dock button that currently has focus, or null. */
-export function getFocusedTopBarNode(container = globalThis.document) {
-  const active = container?.activeElement || globalThis.document?.activeElement || null;
-  if (isTopBarNode(active)) {
-    return active;
-  }
-  // Focus classes are the app's own notion of focus and can lead the DOM's.
-  return globalThis.document?.querySelector(".top-bar .focusable.focused") || null;
-}
-
-function moveWithinTopBar(node, delta) {
-  const nodes = getTopBarNodes(node.closest(".top-bar") || globalThis.document);
-  const index = nodes.indexOf(node);
-  if (index === -1) {
-    return false;
-  }
-  const target = nodes[Math.max(0, Math.min(nodes.length - 1, index + delta))];
-  if (!target || target === node) {
-    // At an end. Consumed anyway, so focus never escapes sideways into whatever
-    // happens to be next in the document.
-    return true;
-  }
-  nodes.forEach((entry) => entry.classList.remove("focused"));
-  target.classList.add("focused");
-  target.focus?.({ preventScroll: true });
-  return true;
-}
-
-/**
- * The screen the dock belongs to.
- *
- * Derived from the dock element rather than by looking for a visible .screen:
- * the dock is position:fixed, so its offsetParent is always null and any
- * visibility test on it answers the wrong question. Only one screen holds a
- * dock at a time, so this is exact.
- */
-function currentScreenRoot() {
-  const bar = globalThis.document?.querySelector(".top-bar");
-  return bar?.closest(".screen") || null;
-}
-
-function contentFocusables(root = currentScreenRoot()) {
-  return Array.from(root?.querySelectorAll(".focusable") || []).filter(
-    (node) => !isTopBarNode(node) && node.offsetParent !== null
-  );
-}
-
-/**
- * The first thing a screen's content offers, ignoring the dock.
- *
- * Used when leaving the dock downwards on a screen that has no opinion of its
- * own about where focus should land.
- */
-function firstContentFocusable() {
-  return contentFocusables()[0] || null;
-}
-
-/**
- * Whether the focused content sits in the topmost row of the page.
- *
- * The dock is above everything, so "up" from the top row should reach it. Rather
- * than each screen declaring where its top is, this compares the focused
- * element against the highest focusable on the page — which is true whatever
- * that screen's layout happens to be.
- */
-function isInTopmostContentRow(node) {
-  if (!node || isTopBarNode(node)) {
-    return false;
-  }
-  const nodes = contentFocusables(node.closest(".screen"));
-  if (!nodes.length) {
-    return false;
-  }
-  const top = Math.min(...nodes.map((entry) => entry.getBoundingClientRect().top));
-  // A row's cards are not pixel-aligned, so a small tolerance keeps a whole row
-  // counting as the top one.
-  return node.getBoundingClientRect().top - top < 24;
-}
-
 /**
  * The dock's key handling, for every screen at once.
  *
- * Lives here and is called by the focus engine before the screen sees the key,
- * because the dock is app chrome rather than part of any screen. Two owners is
- * what produced the earlier bugs: a screen navigating its own cards while the
- * dock had focus, and arrow presses being acted on twice.
- *
- * @returns {boolean} true when the dock consumed the key.
+ * @param {object} event normalized keydown
+ * @param {object|null} screen the current screen, asked where focus belongs
+ * @returns {boolean} true when the dock consumed the key
  */
-export function handleTopBarKey(event, { onLeaveDown = null } = {}) {
+export function handleTopBarKey(event, screen = null) {
   const keyCode = Number(event?.keyCode || 0);
-  const focused = getFocusedTopBarNode();
+  // Gated before anything touches the DOM. Playback alone sends seek, colour and
+  // number keys the dock can never act on.
+  if (keyCode !== 13 && (keyCode < 37 || keyCode > 40)) {
+    return false;
+  }
+  if (!liveBar()) {
+    return false;
+  }
 
+  const focused = getFocusedTopBarNode();
   if (focused) {
     if (keyCode === 37 || keyCode === 39) {
       event?.preventDefault?.();
@@ -287,10 +325,10 @@ export function handleTopBarKey(event, { onLeaveDown = null } = {}) {
     if (keyCode === 40) {
       event?.preventDefault?.();
       focused.classList.remove("focused");
+      focusedDockNode = null;
       // The screen knows best where focus belongs; the generic answer is only
       // used when it has no opinion.
-      const handled = typeof onLeaveDown === "function" ? onLeaveDown(focused) : false;
-      if (!handled) {
+      if (!screen?.focusContentFromTopBar?.(focused)) {
         const target = firstContentFocusable();
         if (target) {
           target.classList.add("focused");
@@ -304,27 +342,20 @@ export function handleTopBarKey(event, { onLeaveDown = null } = {}) {
       event?.preventDefault?.();
       return true;
     }
-    if (keyCode === 13) {
-      event?.preventDefault?.();
-      activateTopBarAction(String(focused.dataset.action || ""), Router.getCurrent?.() || "");
-      return true;
-    }
-    return false;
+    event?.preventDefault?.();
+    activateTopBarAction(String(focused.dataset.action || ""), Router.getCurrent?.() || "");
+    return true;
   }
 
   // Coming back up from the top row of the content.
   if (keyCode === 38) {
-    const active =
-      globalThis.document?.querySelector(".screen:not(.hidden) .focusable.focused") ||
-      globalThis.document?.activeElement ||
-      null;
-    if (isInTopmostContentRow(active)) {
-      const target = getTopBarSelectedNode(currentScreenRoot() || globalThis.document);
+    const active = globalThis.document?.activeElement || null;
+    if (isInTopmostContentRow(active, screen)) {
+      const target = getTopBarSelectedNode(liveBar());
       if (target) {
         event?.preventDefault?.();
         active.classList?.remove("focused");
-        target.classList.add("focused");
-        target.focus?.({ preventScroll: true });
+        focusDockNode(target);
         return true;
       }
     }
@@ -334,6 +365,12 @@ export function handleTopBarKey(event, { onLeaveDown = null } = {}) {
 
 /** Wires clicks. Keys are owned by handleTopBarKey, called by the focus engine. */
 export function bindTopBarEvents(container, { currentRoute = "", onSelectedAction = null } = {}) {
+  // Remembered so the key handler never has to look for it. Screens replace
+  // their markup wholesale, so this is refreshed on every bind and liveBar()
+  // drops it once the node leaves the document.
+  boundBar = container?.querySelector?.(".top-bar") || null;
+  focusedDockNode = null;
+
   getTopBarNodes(container).forEach((node) => {
     node.onclick = async (event) => {
       event?.preventDefault?.();
@@ -345,7 +382,5 @@ export function bindTopBarEvents(container, { currentRoute = "", onSelectedActio
         await onSelectedAction(node);
       }
     };
-    // Deliberately no onkeydown: see handleTopBarKey.
-    node.onkeydown = null;
   });
 }

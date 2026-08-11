@@ -11,7 +11,10 @@
 
 import { I18n } from "../../../i18n/index.js";
 
-const t = (key, params, fallback) => I18n.t(key, params, fallback);
+// I18n.t reads options.fallback, so a bare third argument is ignored.
+function t(key, params = {}, fallback = key) {
+  return I18n.t(key, params, { fallback });
+}
 
 export const HOME_ROUTE = "home";
 

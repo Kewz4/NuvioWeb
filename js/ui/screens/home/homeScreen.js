@@ -6694,6 +6694,16 @@ export const HomeScreen = {
    * success even when it had focused nothing — which left the caller's fallback
    * unused and focus nowhere at all.
    */
+  /**
+   * Whether this node is in the first content row.
+   *
+   * Answered from the row model the screen already keeps, so the focus engine
+   * never has to measure the page to decide that "up" means the dock.
+   */
+  isAtTopContentRow(node) {
+    return String(node?.dataset?.navRow || "") === "0";
+  },
+
   focusContentFromTopBar() {
     this.buildNavigationModel();
     const remembered =
@@ -7599,12 +7609,12 @@ export const HomeScreen = {
   },
 
   buildNavigationModel() {
-    // The dock occupies the same navigation zone the sidebar used to. Reusing
-    // the name rather than adding a third one means focus save/restore, the
-    // back handler and the reselect path all keep working untouched; only the
-    // direction mapping differs, and that is handled in handleDirection.
+    // The dock is deliberately absent. Its keys are owned by the focus engine,
+    // so collecting it here would put chrome into the screen's own navigation
+    // model — and the renumbering below would overwrite its zone, which is how
+    // presses started moving between the dock and the cards as one list.
     const sidebar = this.layoutPrefs?.topBarNavigation
-      ? Array.from(this.container?.querySelectorAll(".top-bar .focusable") || [])
+      ? []
       : this.layoutPrefs?.modernSidebar
         ? Array.from(this.container?.querySelectorAll(".modern-sidebar-panel .focusable") || [])
         : Array.from(this.container?.querySelectorAll(".home-sidebar .focusable") || []);

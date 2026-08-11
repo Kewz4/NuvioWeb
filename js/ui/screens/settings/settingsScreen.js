@@ -2080,7 +2080,12 @@ function createDefaultExpandedState(sectionId) {
       homeContent: false,
       continueWatching: false,
       detailPage: false,
-      focusedPoster: false
+      focusedPoster: false,
+      // Every group has to be listed here: normalizeExpandedState copies only
+      // the keys it finds in these defaults, so a group missing from the list
+      // has its open/closed state discarded on the next render — the row
+      // organiser toggled open and was closed again before it could paint.
+      rowOrganiser: false
     };
   }
 

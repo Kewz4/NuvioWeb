@@ -17,43 +17,50 @@ import { I18n } from "../../../i18n/index.js";
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
 import { watchProgressRepository } from "../../../data/repository/watchProgressRepository.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
+import { getWatchProgressFraction } from "../../../domain/model/watchProgress.js";
+import { escapeHtml, firstNonEmpty } from "../home/homeUtils.js";
 import {
   bindRootSidebarEvents,
   getSidebarProfileState,
   renderRootSidebar
 } from "../../components/sidebarNavigation.js";
 
-const t = (key, params, fallback) => I18n.t(key, params, fallback);
+// I18n.t reads options.fallback, so a bare third argument is ignored.
+function t(key, params = {}, fallback = key) {
+  return I18n.t(key, params, { fallback });
+}
 
 // Enough to be worth looking at, few enough that the page stays one screen and
 // the TV is not asked to decode a hundred posters to show a summary.
 const MAX_SAVED = 12;
 const MAX_CONTINUE = 8;
 
-function escapeHtml(value = "") {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function posterUrl(entry = {}) {
-  return String(entry?.poster || entry?.posterUrl || entry?.enrichedMeta?.poster || "").trim();
+  return firstNonEmpty(entry?.poster, entry?.posterUrl, entry?.enrichedMeta?.poster);
 }
 
 function entryTitle(entry = {}) {
-  return String(entry?.title || entry?.name || entry?.contentId || "").trim();
+  // Watch-progress rows store only an id; the readable name arrives later under
+  // enrichedMeta, which is why every card showed "tt27419466".
+  return firstNonEmpty(
+    entry?.title,
+    entry?.name,
+    entry?.enrichedMeta?.name,
+    entry?.enrichedMeta?.title,
+    entry?.contentId,
+    entry?.id
+  );
 }
 
-/** Percent watched, or 0 when the player never measured it. */
+/**
+ * Percent watched, or 0 when nothing was measured.
+ *
+ * Through the shared helper because Trakt-sourced rows carry only a
+ * progressPercent field, with positionMs and durationMs left at zero — deriving
+ * it from those two alone drew an empty bar on every Trakt entry.
+ */
 function progressPercent(entry = {}) {
-  const position = Number(entry?.positionMs || 0) || 0;
-  const duration = Number(entry?.durationMs || 0) || 0;
-  if (!duration) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, Math.round((position / duration) * 100)));
+  return Math.max(0, Math.min(100, Math.round(getWatchProgressFraction(entry) * 100)));
 }
 
 function renderCard(entry, index, { showProgress = false } = {}) {
@@ -103,7 +110,6 @@ function renderRow(titleText, entries, options = {}) {
 export const MyProfileScreen = {
   container: null,
   profile: null,
-  enterArmed: false,
   enterReleaseHandler: null,
   saved: [],
   continueWatching: [],
@@ -132,11 +138,8 @@ export const MyProfileScreen = {
 
   cleanup() {
     ScreenUtils.hide(this.container);
-    if (this.enterReleaseHandler) {
-      globalThis.removeEventListener("keyup", this.enterReleaseHandler, true);
-      this.enterReleaseHandler = null;
-    }
-    this.enterArmed = false;
+    this.releaseEnterGuard();
+    this.profile = null;
     this.saved = [];
     this.continueWatching = [];
   },
@@ -256,24 +259,129 @@ export const MyProfileScreen = {
    * rather than guessing how long a press lasts.
    */
   armEnterAfterRelease() {
-    this.enterArmed = false;
     if (this.enterReleaseHandler) {
-      globalThis.removeEventListener("keyup", this.enterReleaseHandler, true);
+      // Already waiting for the release; re-arming would only reset the wait
+      // after the viewer may have let go.
+      return;
     }
     this.enterReleaseHandler = (event) => {
       if (Number(event?.keyCode || 0) !== 13) {
         return;
       }
-      this.enterArmed = true;
-      globalThis.removeEventListener("keyup", this.enterReleaseHandler, true);
-      this.enterReleaseHandler = null;
+      this.releaseEnterGuard();
     };
     globalThis.addEventListener("keyup", this.enterReleaseHandler, true);
   },
 
+  releaseEnterGuard() {
+    if (!this.enterReleaseHandler) {
+      return;
+    }
+    globalThis.removeEventListener("keyup", this.enterReleaseHandler, true);
+    this.enterReleaseHandler = null;
+  },
+
+  /**
+   * The page as rows of focusable things, top to bottom.
+   *
+   * Read from the DOM rather than kept in sync with it: the page is small and
+   * rebuilt whole on every render, so a cached model would only be one more
+   * thing able to disagree with what is on screen.
+   */
+  navigationRows() {
+    const rows = [];
+    const actions = Array.from(this.container?.querySelectorAll(".myprofile-action") || []);
+    if (actions.length) {
+      rows.push(actions);
+    }
+    this.container?.querySelectorAll(".myprofile-row-track").forEach((track) => {
+      const cards = Array.from(track.querySelectorAll(".myprofile-card"));
+      if (cards.length) {
+        rows.push(cards);
+      }
+    });
+    return rows;
+  },
+
+  focusNode(target) {
+    if (!target) {
+      return false;
+    }
+    this.container?.querySelectorAll(".focusable.focused").forEach((node) => {
+      if (node !== target) {
+        node.classList.remove("focused");
+      }
+    });
+    target.classList.add("focused");
+    target.focus?.({ preventScroll: true });
+    // Keeps the focused card on screen without scrolling the page under the
+    // dock, which scrollIntoView would do.
+    const track = target.closest(".myprofile-row-track");
+    if (track) {
+      const card = target.getBoundingClientRect();
+      const view = track.getBoundingClientRect();
+      if (card.left < view.left) {
+        track.scrollLeft -= Math.round(view.left - card.left) + 24;
+      } else if (card.right > view.right) {
+        track.scrollLeft += Math.round(card.right - view.right) + 24;
+      }
+    }
+    target.closest(".myprofile-row, .myprofile-hero")?.scrollIntoView?.({
+      block: "nearest"
+    });
+    return true;
+  },
+
+  /** Where focus lands when the dock hands it back. */
+  focusContentFromTopBar() {
+    const rows = this.navigationRows();
+    return this.focusNode(rows[0]?.[0] || null);
+  },
+
+  moveFocus(direction) {
+    const rows = this.navigationRows();
+    if (!rows.length) {
+      return false;
+    }
+    const current = this.container?.querySelector(".focusable.focused");
+    let rowIndex = rows.findIndex((row) => row.includes(current));
+    let colIndex = rowIndex >= 0 ? rows[rowIndex].indexOf(current) : 0;
+    if (rowIndex < 0) {
+      return this.focusNode(rows[0][0]);
+    }
+
+    if (direction === "left" || direction === "right") {
+      const next = colIndex + (direction === "right" ? 1 : -1);
+      if (next < 0 || next >= rows[rowIndex].length) {
+        // Consumed at the ends so focus cannot escape the page sideways.
+        return true;
+      }
+      return this.focusNode(rows[rowIndex][next]);
+    }
+
+    const nextRow = rowIndex + (direction === "down" ? 1 : -1);
+    if (nextRow < 0 || nextRow >= rows.length) {
+      // Off the top is the dock's business, handled before this screen is asked.
+      return false;
+    }
+    // Keep the column where it can, so moving down a list of cards does not
+    // jump back to the first one.
+    const target = rows[nextRow][Math.min(colIndex, rows[nextRow].length - 1)];
+    return this.focusNode(target);
+  },
+
   onKeyDown(event) {
     const code = Number(event?.keyCode || 0);
-    if (code === 13 && !this.enterArmed) {
+    const direction = { 37: "left", 38: "up", 39: "right", 40: "down" }[code];
+    if (direction) {
+      if (this.moveFocus(direction)) {
+        event?.preventDefault?.();
+        return true;
+      }
+      return false;
+    }
+    // Still holding the Enter that opened this screen: see armEnterAfterRelease.
+    if (code === 13 && this.enterReleaseHandler) {
       event?.preventDefault?.();
       return true;
     }
