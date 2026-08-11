@@ -41,6 +41,11 @@ export function renderModernHomeLayout({
   rowLayouts = {},
   focusedRowKey = "",
   focusedItemIndex = -1,
+  // Rows to build in full. Everything else gets one card, which is enough to
+  // keep it in the navigation model and hold the row's height, and the rest are
+  // appended when it comes near. Measured before this: 237 cards in the DOM to
+  // show 4, and 34 megapixels of decoded poster to show 7.
+  materialisedRowKeys = null,
   expandFocusedPoster = false,
   buildModernHeroPresentation,
   renderHeroBackdropImage,
@@ -84,9 +89,14 @@ export function renderModernHomeLayout({
       focusedRowKey === rowKey && Number.isFinite(focusedItemIndex)
         ? Math.max(0, Number(focusedItemIndex)) + 1
         : 0;
-    const visibleItems = isCollectionRow
+    const fullItems = isCollectionRow
       ? rowItems
       : rowItems.slice(0, Math.max(maxItems, focusedItemLimit));
+    // A Set of null means "no windowing" — the legacy behaviour, and what the
+    // grid and classic layouts still get.
+    const isMaterialised = !materialisedRowKeys || materialisedRowKeys.has(rowKey);
+    const visibleItems = isMaterialised ? fullItems : fullItems.slice(0, 1);
+    const deferredCount = fullItems.length - visibleItems.length;
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
       : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
@@ -113,7 +123,9 @@ export function renderModernHomeLayout({
       .join("");
 
     sectionsMarkup.push(`
-      <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
+      <section class="home-row home-modern-row home-row-enter${deferredCount ? " is-virtualised" : ""}"
+               data-row-key="${escapeHtml(rowKey)}"
+               data-row-index="${rowIndex}"${deferredCount ? ` data-virtual-deferred="${deferredCount}"` : ""}>
         <div class="home-row-head">
           <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
         </div>

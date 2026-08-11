@@ -46,3 +46,21 @@ export const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;
 export const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 400;
 export const HOME_RETURN_FOCUS_STATE_KEY = "homeReturnFocusState";
 export const HOME_PERF_DEBUG = Boolean(globalThis.__NUVIO_DEBUG_HOME_PERF__);
+
+// Releasing posters that have scrolled well out of the way.
+//
+// Deliberately far outside the hydration margins (720/520 on a TV) so the two
+// passes never argue over the same image — releasing anything near the edge
+// would drop and refetch the same poster as focus moves along a row.
+export const HOME_IMAGE_RELEASE_MARGIN_Y = 2200;
+export const HOME_IMAGE_RELEASE_MARGIN_X = 1600;
+
+// How many rows either side of the focused one are built in full. Ahead is
+// larger than behind because movement down is what has to feel instant; a row
+// already passed can be refilled on the way back.
+export const HOME_ROW_WINDOW_AHEAD = 3;
+export const HOME_ROW_WINDOW_BEHIND = 2;
+
+// Rows filled per idle slice. Small enough that a slice stays inside a frame on
+// a TV, large enough that the list finishes filling in well under a second.
+export const HOME_ROW_MATERIALISE_BATCH = 2;

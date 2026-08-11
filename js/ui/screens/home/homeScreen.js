@@ -101,6 +101,11 @@ import {
   CW_RENDER_BATCH_ITEMS_DEFAULT,
   CW_RENDER_BATCH_ITEMS_LEGACY_TV,
   CW_RENDER_LOAD_AHEAD_ITEMS,
+  HOME_ROW_MATERIALISE_BATCH,
+  HOME_ROW_WINDOW_AHEAD,
+  HOME_ROW_WINDOW_BEHIND,
+  HOME_IMAGE_RELEASE_MARGIN_X,
+  HOME_IMAGE_RELEASE_MARGIN_Y,
   HERO_ROTATE_FIRST_DELAY_MS,
   HERO_ROTATE_INTERVAL_MS,
   HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS,
@@ -9063,6 +9068,7 @@ export const HomeScreen = {
         useEpisodeThumbnailsInCw: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
         blurContinueWatchingNextUp: resolveContinueWatchingBlurNextUp(this.layoutPrefs),
         rowItemLimit,
+        materialisedRowKeys: this.getMaterialisedRowKeys(),
         showHeroSection,
         showPosterLabels,
         showCatalogTypeSuffix,
@@ -9171,6 +9177,8 @@ export const HomeScreen = {
     this.buildNavigationModel();
     this.bindHomeViewportEvents();
     this.setupContinueWatchingProgressiveRendering();
+    // Rows painted with a placeholder finish filling in once the screen is up.
+    this.scheduleRowMaterialisation();
     if (this.layoutMode === "modern") {
       this.setupModernTrackScrollPagination();
     }
@@ -9351,6 +9359,221 @@ export const HomeScreen = {
     });
   },
 
+  /**
+   * Lets go of posters that have scrolled well out of the way.
+   *
+   * Hydration only ever adds: once an image had a src it kept it for the life of
+   * the screen. Measured on Home, that left 34 megapixels — around 130 MB of
+   * decoded bitmap — resident to show seven visible posters. A TV does not have
+   * that to spare, so it evicts and re-decodes constantly, on the main thread,
+   * which is a large part of what "moving around stutters" actually is.
+   *
+   * The source goes back to data-src, so the same image rehydrates from cache
+   * the moment it comes near again.
+   */
+  /**
+   * The rows worth building in full right now.
+   *
+   * Everything else renders one card: enough to hold its place in the
+   * navigation model and give the row its height, with the rest appended when
+   * it comes near. A row you cannot see costs the same to lay out and composite
+   * as one you can.
+   *
+   * The window follows the focused row rather than the scroll position, because
+   * on a remote focus is what moves and the scroll follows it. Keeping a couple
+   * of rows either side means the next row down is always ready before the
+   * viewer reaches it.
+   */
+  getMaterialisedRowKeys() {
+    const rows = Array.isArray(this.rows) ? this.rows : [];
+    if (!rows.length) {
+      return null;
+    }
+    const keys = rows.map((row) => String(row?.homeCatalogKey || buildModernRowKey(row || {})));
+    const focusedKey = String(this.lastMainFocus?.dataset?.navRowKey || "");
+    const focusedIndex = Math.max(0, keys.indexOf(focusedKey));
+    const first = Math.max(0, focusedIndex - HOME_ROW_WINDOW_BEHIND);
+    const last = Math.min(keys.length - 1, focusedIndex + HOME_ROW_WINDOW_AHEAD);
+    return new Set(keys.slice(first, last + 1));
+  },
+
+  /** True once every deferred row has been filled in. */
+  hasPendingRowMaterialisation() {
+    return Boolean(this.container?.querySelector(".home-modern-row[data-virtual-deferred]"));
+  },
+
+  /**
+   * Fills in a row that was rendered with a single placeholder card.
+   *
+   * Appends rather than re-rendering the screen: a full rebuild of two thousand
+   * nodes to reveal one row is the cost this whole change exists to avoid. The
+   * approach mirrors appendContinueWatchingBatch, which has done the same for
+   * Continue Watching all along.
+   */
+  materialiseRow(section) {
+    const deferred = Number(section?.dataset?.virtualDeferred || 0);
+    const track = section?.querySelector(".home-track");
+    if (!deferred || !track) {
+      return false;
+    }
+    const rowKey = String(section.dataset.rowKey || "");
+    const rowData = (this.rows || []).find(
+      (row) => String(row?.homeCatalogKey || buildModernRowKey(row || {})) === rowKey
+    );
+    const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
+    const source = items.length ? items : rowData?.loadingItems || [];
+    const mounted = track.querySelectorAll(".home-content-card").length;
+    const nextItems = source.slice(mounted, mounted + deferred);
+    if (!nextItems.length) {
+      delete section.dataset.virtualDeferred;
+      section.classList.remove("is-virtualised");
+      return false;
+    }
+
+    const rowIndex = Number(section.dataset.rowIndex || 0);
+    const rowLayouts = this.catalogPrefs().get().rowLayouts || {};
+    const markup = nextItems
+      .map((item, index) =>
+        createPosterCardMarkup(
+          item,
+          rowIndex,
+          mounted + index,
+          rowData?.type,
+          rowData,
+          this.layoutPrefs?.posterLabelsEnabled !== false,
+          "modern",
+          false,
+          rowLayouts[rowKey]
+            ? rowLayouts[rowKey] === "landscape"
+            : Boolean(this.layoutPrefs?.modernLandscapePostersEnabled),
+          // Deferred: the hydration pass that follows decides what to load.
+          true,
+          this.watchedTitleIds
+        )
+      )
+      .join("");
+    if (!markup) {
+      return false;
+    }
+
+    const fragment = document.createRange().createContextualFragment(markup);
+    const appended = Array.from(fragment.querySelectorAll(".home-content-card.focusable"));
+    const navigationRowIndex = (this.navModel?.rows || []).findIndex(
+      (rowNodes) => rowNodes[0]?.closest?.(".home-track") === track
+    );
+    appended.forEach((card, index) => {
+      card.dataset.navZone = "main";
+      card.dataset.navRow = String(Math.max(0, navigationRowIndex));
+      card.dataset.navCol = String(mounted + index);
+      card.dataset.navRowKey = rowKey;
+    });
+    track.appendChild(fragment);
+    delete section.dataset.virtualDeferred;
+    section.classList.remove("is-virtualised");
+
+    if (navigationRowIndex >= 0 && this.navModel?.rows?.[navigationRowIndex]) {
+      this.navModel.rows[navigationRowIndex].push(...appended);
+      this.navModel.rowNodesByRowKey?.set?.(rowKey, this.navModel.rows[navigationRowIndex]);
+    } else {
+      this.invalidateNavigationModel();
+      this.buildNavigationModel();
+    }
+    return true;
+  },
+
+  /**
+   * Fills in the rows that were rendered with a single placeholder card.
+   *
+   * Runs after the screen has painted, a couple of rows per idle slice, and
+   * stops as soon as everything is filled. Two reasons for that shape:
+   *
+   * The first is the reason the placeholders exist at all — the screen paints
+   * with about seventy cards instead of two hundred and forty, so the first
+   * frame arrives far sooner on a TV.
+   *
+   * The second is why this is not driven by focus. Filling a row appends to the
+   * navigation model, and doing that while the viewer is moving through it
+   * shifted the rows under them: pressing down oscillated between two rows and
+   * pressing up eventually lost focus altogether. Settling the model once,
+   * before anyone is navigating, avoids the whole class of problem.
+   */
+  scheduleRowMaterialisation() {
+    if (this.rowMaterialisationHandle) {
+      return;
+    }
+    const runSlice = () => {
+      this.rowMaterialisationHandle = 0;
+      if (!this.container || !isOnHomeRoute()) {
+        return;
+      }
+      const pending = Array.from(
+        this.container.querySelectorAll(".home-modern-row[data-virtual-deferred]")
+      );
+      if (!pending.length) {
+        return;
+      }
+      // A slice at a time so no single frame blows the budget. Measured before
+      // this, one render produced tasks of 103, 113 and 190 ms; Samsung's
+      // guidance for a frame callback is eight.
+      pending.slice(0, HOME_ROW_MATERIALISE_BATCH).forEach((section) => {
+        this.materialiseRow(section);
+      });
+      this.invalidateNavigationModel();
+      this.buildNavigationModel();
+      this.scheduleHomeLazyImageHydration();
+      this.scheduleRowMaterialisation();
+    };
+    this.rowMaterialisationHandle =
+      typeof globalThis.requestIdleCallback === "function"
+        ? globalThis.requestIdleCallback(runSlice, { timeout: 400 })
+        : setTimeout(runSlice, 60);
+  },
+
+  cancelRowMaterialisation() {
+    if (!this.rowMaterialisationHandle) {
+      return;
+    }
+    if (typeof globalThis.cancelIdleCallback === "function") {
+      globalThis.cancelIdleCallback(this.rowMaterialisationHandle);
+    }
+    clearTimeout(this.rowMaterialisationHandle);
+    this.rowMaterialisationHandle = 0;
+  },
+
+  releaseDistantHomeImages(viewportRect) {
+    const images = this.container?.querySelectorAll(
+      ".home-main .content-poster[src], .home-main .home-poster-landscape-logo[src], .home-main .home-continue-bg[src]"
+    );
+    if (!images?.length) {
+      return 0;
+    }
+    let released = 0;
+    images.forEach((image) => {
+      const src = image.getAttribute("src");
+      if (!src) {
+        return;
+      }
+      const rect = image.getBoundingClientRect();
+      // A zero-sized rect means the row is hidden rather than far away; those
+      // are left alone so a collapsed row does not thrash on every pass.
+      if (!rect.width && !rect.height) {
+        return;
+      }
+      const farAway =
+        rect.bottom < viewportRect.top - HOME_IMAGE_RELEASE_MARGIN_Y ||
+        rect.top > viewportRect.bottom + HOME_IMAGE_RELEASE_MARGIN_Y ||
+        rect.right < viewportRect.left - HOME_IMAGE_RELEASE_MARGIN_X ||
+        rect.left > viewportRect.right + HOME_IMAGE_RELEASE_MARGIN_X;
+      if (!farAway) {
+        return;
+      }
+      image.setAttribute("data-src", src);
+      image.removeAttribute("src");
+      released += 1;
+    });
+    return released;
+  },
+
   hydrateHomeLazyImages(anchorNode = null, { forceFullScan = false } = {}) {
     if (!this.container) {
       return;
@@ -9382,6 +9605,10 @@ export const HomeScreen = {
       this.container.querySelector(".home-main") ||
       this.container;
     const viewportRect = viewport.getBoundingClientRect();
+    // Run here because this pass has already measured the viewport, and it is
+    // the same pass that decides what to load — keeping both decisions together
+    // is what stops them disagreeing.
+    this.releaseDistantHomeImages(viewportRect);
     const verticalMargin = Platform.isWebOS() || Platform.isTizen() ? 720 : 1200;
     const horizontalMargin = Platform.isWebOS() || Platform.isTizen() ? 520 : 1000;
     const imagesByRow = new Map();
@@ -10978,6 +11205,7 @@ export const HomeScreen = {
   },
 
   cleanup() {
+    this.cancelRowMaterialisation();
     this.cancelModernSidebarPillAutoCollapse();
     this.cancelPendingContinueWatchingEnter();
     this.cancelPendingContinueWatchingHold();
