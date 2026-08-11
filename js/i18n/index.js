@@ -612,11 +612,38 @@ export const I18n = {
     return interpolate(options?.fallback ?? key, params);
   },
 
+  /**
+   * Re-translates the page after a locale change.
+   *
+   * Screens bake their strings in at render time, which is fine as long as they
+   * render after the locale settles. The chrome does not: it is rendered once
+   * per screen and can outlive several locale changes — the app boots before a
+   * profile is chosen, so the first render uses whatever locale is resolvable
+   * then, and the profile's real language arrives with the settings sync.
+   *
+   * Anything that must survive that carries data-i18n (and optionally
+   * data-i18n-fallback) and is refreshed here.
+   */
   apply() {
     const locale = this.getLocale();
-    if (typeof document !== "undefined" && document?.documentElement) {
-      document.documentElement.lang = locale;
+    if (typeof document === "undefined" || !document?.documentElement) {
+      return locale;
     }
+    document.documentElement.lang = locale;
+    document.querySelectorAll("[data-i18n]").forEach((node) => {
+      const key = node.getAttribute("data-i18n");
+      if (!key) {
+        return;
+      }
+      const fallback = node.getAttribute("data-i18n-fallback") || key;
+      const text = this.t(key, {}, { fallback });
+      if (node.textContent !== text) {
+        node.textContent = text;
+      }
+      if (node.hasAttribute("data-i18n-aria")) {
+        node.setAttribute("aria-label", text);
+      }
+    });
     return locale;
   }
 };

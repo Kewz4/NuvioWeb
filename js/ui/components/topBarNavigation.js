@@ -107,10 +107,10 @@ export function renderTopBar({ selectedRoute = "home", profile = null } = {}) {
     const isSelected = item.route === selected;
     const label = t(item.labelKey, {}, item.fallbackLabel);
     const body = item.isProfile
-      ? `${profileAvatarMarkup(profileState)}<span class="top-bar-label">${escapeHtml(label)}</span>`
+      ? `${profileAvatarMarkup(profileState)}<span class="top-bar-label" data-i18n="${escapeAttribute(item.labelKey)}" data-i18n-fallback="${escapeAttribute(item.fallbackLabel)}">${escapeHtml(label)}</span>`
       : item.iconOnly
         ? `<svg class="top-bar-icon" viewBox="${escapeAttribute(item.viewBox)}" aria-hidden="true" focusable="false">${item.iconMarkup}</svg>`
-        : `<span class="top-bar-label">${escapeHtml(label)}</span>`;
+        : `<span class="top-bar-label" data-i18n="${escapeAttribute(item.labelKey)}" data-i18n-fallback="${escapeAttribute(item.fallbackLabel)}">${escapeHtml(label)}</span>`;
 
     return `
       <button class="top-bar-item focusable${isSelected ? " selected" : ""}${item.iconOnly ? " icon-only" : ""}${item.isProfile ? " top-bar-profile" : ""}"

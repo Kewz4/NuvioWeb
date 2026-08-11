@@ -3270,6 +3270,16 @@ export const HomeScreen = {
     const existing = springMap.get(container) || {};
     const active = existing[key];
     if (active) {
+      // Reversing direction while the spring is still travelling: the momentum
+      // from the previous press points the wrong way, so the row visibly
+      // continues the old way before turning round. That reads as the remote
+      // fighting you, and it is worst exactly when someone is correcting an
+      // overshoot. Dropping the velocity on a reversal makes the turn immediate
+      // without touching how a move in a steady direction feels.
+      const reversing = (nextValue - active.position) * active.velocity < 0;
+      if (reversing) {
+        active.velocity = 0;
+      }
       active.target = nextValue;
       active.stiffness = Number(
         options?.stiffness ?? active.stiffness ?? MODERN_HOME_CONSTANTS.springScrollStiffness
@@ -8950,8 +8960,14 @@ export const HomeScreen = {
     // pins its scroller to the bottom 52% and gives the top half to the hero, so
     // hiding the hero alone would leave that half as dead black space — on every
     // tab, and on Home too for anyone who turns the hero off in settings.
+    //
+    // Keyed on whether a hero is *wanted*, not on whether one has arrived yet:
+    // using showHeroSection meant Home laid out full-height until the hero
+    // loaded and then shifted every row down by half a screen.
+    const wantsHeroSection =
+      showsHomeChrome(this.activeRoute) && Boolean(this.layoutPrefs?.heroSectionEnabled);
     const modernNoHeroLayoutClass =
-      this.layoutMode === "modern" && !showHeroSection ? " home-modern-no-hero" : "";
+      this.layoutMode === "modern" && !wantsHeroSection ? " home-modern-no-hero" : "";
     const layoutClass = `home-layout-${this.layoutMode}${modernLandscapeLayoutClass}${modernHeroFullScreenBackdropClass}${modernSidebarLayoutClass}${modernNoHeroLayoutClass}`;
     const sizingStyle =
       this.layoutMode === "modern" ? buildModernHomeSizingStyle(this.layoutPrefs) : "";

@@ -22303,6 +22303,17 @@ html.legacy-webos .debug-console-log-frame {
   padding-top: var(--top-bar-clearance, 104px);
 }
 
+/* Anything the app scrolls into view has to stop below the dock, not under it.
+   Without this a row brought into view by the D-pad lands at the top of the
+   scroller — which is behind a bar floating over it, so the title it was
+   scrolled to is the one thing you cannot read. */
+.has-top-bar .home-modern-rows-viewport,
+.has-top-bar .home-main,
+.has-top-bar .seeall-main,
+.has-top-bar main {
+  scroll-padding-top: var(--top-bar-clearance, 104px);
+}
+
 .legacy-tizen .home-screen-shell.home-layout-modern.home-modern-no-hero .home-modern-rows-viewport {
   bottom: 0;
   height: var(--modern-rows-viewport-height);
