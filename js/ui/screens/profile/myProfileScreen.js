@@ -103,6 +103,8 @@ function renderRow(titleText, entries, options = {}) {
 export const MyProfileScreen = {
   container: null,
   profile: null,
+  enterArmed: false,
+  enterReleaseHandler: null,
   saved: [],
   continueWatching: [],
   layoutPrefs: null,
@@ -130,6 +132,11 @@ export const MyProfileScreen = {
 
   cleanup() {
     ScreenUtils.hide(this.container);
+    if (this.enterReleaseHandler) {
+      globalThis.removeEventListener("keyup", this.enterReleaseHandler, true);
+      this.enterReleaseHandler = null;
+    }
+    this.enterArmed = false;
     this.saved = [];
     this.continueWatching = [];
   },
@@ -199,6 +206,11 @@ export const MyProfileScreen = {
     bindRootSidebarEvents(this.container, { currentRoute: "myProfile" });
     this.bindContent();
     ScreenUtils.setInitialFocus(this.container, ".myprofile-action.focusable");
+    // The press that opened this screen is still held. Its repeat and its keyup
+    // land here, on whatever now has focus — and the first action is "Cambiar de
+    // perfil", so a single press on Mi Perfil went straight through to the
+    // profile chooser. Enter is ignored until the key has been released once.
+    this.armEnterAfterRelease();
   },
 
   bindContent() {
@@ -237,8 +249,34 @@ export const MyProfileScreen = {
     }
   },
 
+  /**
+   * Ignores Enter until the key that brought us here has been let go.
+   *
+   * Cheaper and more reliable than a timer: it keys off the actual release
+   * rather than guessing how long a press lasts.
+   */
+  armEnterAfterRelease() {
+    this.enterArmed = false;
+    if (this.enterReleaseHandler) {
+      globalThis.removeEventListener("keyup", this.enterReleaseHandler, true);
+    }
+    this.enterReleaseHandler = (event) => {
+      if (Number(event?.keyCode || 0) !== 13) {
+        return;
+      }
+      this.enterArmed = true;
+      globalThis.removeEventListener("keyup", this.enterReleaseHandler, true);
+      this.enterReleaseHandler = null;
+    };
+    globalThis.addEventListener("keyup", this.enterReleaseHandler, true);
+  },
+
   onKeyDown(event) {
     const code = Number(event?.keyCode || 0);
+    if (code === 13 && !this.enterArmed) {
+      event?.preventDefault?.();
+      return true;
+    }
     if (code === 13) {
       const focused = this.container?.querySelector(".focusable.focused");
       if (focused?.dataset?.zone === "content") {

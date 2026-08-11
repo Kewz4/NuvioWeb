@@ -6683,6 +6683,35 @@ export const HomeScreen = {
     return isHomeTabRoute(this.activeRoute);
   },
 
+  /**
+   * Where focus goes when leaving the dock downwards.
+   *
+   * Restores whichever card the viewer was last on rather than the first, so
+   * stepping up to the dock and back down does not lose their place.
+   *
+   * Deliberately not routed through closeSidebarToContent: that is written in
+   * terms of a sidebar being open, and it ends in `|| true`, so it reported
+   * success even when it had focused nothing — which left the caller's fallback
+   * unused and focus nowhere at all.
+   */
+  focusContentFromTopBar() {
+    this.buildNavigationModel();
+    const remembered =
+      this.lastMainFocus && this.lastMainFocus.isConnected && this.isMainNode(this.lastMainFocus)
+        ? this.lastMainFocus
+        : null;
+    const target = remembered || this.navModel?.rows?.[0]?.[0] || null;
+    if (!target) {
+      return false;
+    }
+    this.setFocusedNode(target);
+    this.lastMainFocus = target;
+    this.rememberMainRowFocus(target);
+    this.ensureTrackHorizontalVisibility(target);
+    this.ensureMainVerticalVisibility(target);
+    return true;
+  },
+
   onSidebarReselect() {
     const viewport = this.getHomeViewport();
     if (viewport) {
@@ -7779,23 +7808,6 @@ export const HomeScreen = {
     ) {
       if (this.heroCandidates?.length > 1) {
         this.rotateHero(direction === "right" ? 1 : -1);
-      }
-      return true;
-    }
-
-    if (isSidebar && this.layoutPrefs?.topBarNavigation) {
-      // A dock runs across the top, so it reads left/right and hands "down"
-      // back to the content. "Up" is already at the top and stays put rather
-      // than letting focus escape the dock entirely.
-      const barIndex = Number(current.dataset.navIndex || 0);
-      if (direction === "left" || direction === "right") {
-        const nextIndex = direction === "left" ? barIndex - 1 : barIndex + 1;
-        const target =
-          nav.sidebar[Math.max(0, Math.min(nav.sidebar.length - 1, nextIndex))] || current;
-        return this.focusNode(current, target, direction, inputMeta) || true;
-      }
-      if (direction === "down") {
-        return this.closeSidebarToContent() || true;
       }
       return true;
     }

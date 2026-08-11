@@ -258,7 +258,14 @@ export const ScreenUtils = {
   },
 
   indexFocusables(container, selector = ".focusable") {
-    const list = Array.from(container?.querySelectorAll(selector) || []);
+    // The dock is excluded on purpose. Screens navigate by this linear index,
+    // so numbering the dock's buttons into the same run let a press move between
+    // the navigation and the content as if they were one list — cards changing
+    // while the dock had focus, and no way back up into it. The dock's keys are
+    // owned by the focus engine instead.
+    const list = Array.from(container?.querySelectorAll(selector) || []).filter(
+      (node) => !node.closest?.(".top-bar")
+    );
     list.forEach((node, index) => {
       const indexValue = String(index);
       if (node.dataset.index !== indexValue) {

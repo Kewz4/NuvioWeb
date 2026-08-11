@@ -1,5 +1,6 @@
 import { Router } from "./router.js";
 import { Platform } from "../../platform/index.js";
+import { handleTopBarKey } from "../components/topBarNavigation.js";
 
 function buildNormalizedEvent(event) {
   const normalizedKey = Platform.normalizeKey(event);
@@ -167,6 +168,18 @@ export const FocusEngine = {
     }
 
     const currentScreen = Router.getCurrentScreen();
+
+    // The dock is app chrome, not part of any screen, so it owns its keys here
+    // — before the screen sees them. Letting both act is what allowed a screen
+    // to move its own cards while the dock had focus, and left screens with no
+    // linear route back up into it.
+    if (
+      handleTopBarKey(normalizedEvent, {
+        onLeaveDown: (node) => Boolean(currentScreen?.focusContentFromTopBar?.(node))
+      })
+    ) {
+      return;
+    }
 
     if (currentScreen?.onKeyDown) {
       Promise.resolve(currentScreen.onKeyDown(normalizedEvent)).catch((error) => {

@@ -185,38 +185,156 @@ export function activateTopBarAction(action, currentRoute = "") {
   Router.navigate(target.route);
 }
 
-/**
- * Wires clicks and left/right movement.
- *
- * The bar is horizontal, so it consumes left and right and leaves up and down
- * to the screen — which is the whole reason it replaces a vertical sidebar
- * without disturbing how any screen's content is navigated.
- */
-export function bindTopBarEvents(
-  container,
-  { currentRoute = "", onSelectedAction = null, onLeaveDown = null } = {}
-) {
-  const nodes = getTopBarNodes(container);
+/** The dock button that currently has focus, or null. */
+export function getFocusedTopBarNode(container = globalThis.document) {
+  const active = container?.activeElement || globalThis.document?.activeElement || null;
+  if (isTopBarNode(active)) {
+    return active;
+  }
+  // Focus classes are the app's own notion of focus and can lead the DOM's.
+  return globalThis.document?.querySelector(".top-bar .focusable.focused") || null;
+}
 
-  const move = (currentNode, delta) => {
-    const live = nodes.filter((node) => node.isConnected);
-    const index = live.indexOf(currentNode);
-    if (index === -1) {
-      return false;
-    }
-    const target = live[Math.max(0, Math.min(live.length - 1, index + delta))];
-    if (!target || target === currentNode) {
-      // Already at an end. Consumed anyway, so focus never escapes sideways
-      // into whatever happens to be the next element in the document.
+function moveWithinTopBar(node, delta) {
+  const nodes = getTopBarNodes(node.closest(".top-bar") || globalThis.document);
+  const index = nodes.indexOf(node);
+  if (index === -1) {
+    return false;
+  }
+  const target = nodes[Math.max(0, Math.min(nodes.length - 1, index + delta))];
+  if (!target || target === node) {
+    // At an end. Consumed anyway, so focus never escapes sideways into whatever
+    // happens to be next in the document.
+    return true;
+  }
+  nodes.forEach((entry) => entry.classList.remove("focused"));
+  target.classList.add("focused");
+  target.focus?.({ preventScroll: true });
+  return true;
+}
+
+/**
+ * The screen the dock belongs to.
+ *
+ * Derived from the dock element rather than by looking for a visible .screen:
+ * the dock is position:fixed, so its offsetParent is always null and any
+ * visibility test on it answers the wrong question. Only one screen holds a
+ * dock at a time, so this is exact.
+ */
+function currentScreenRoot() {
+  const bar = globalThis.document?.querySelector(".top-bar");
+  return bar?.closest(".screen") || null;
+}
+
+function contentFocusables(root = currentScreenRoot()) {
+  return Array.from(root?.querySelectorAll(".focusable") || []).filter(
+    (node) => !isTopBarNode(node) && node.offsetParent !== null
+  );
+}
+
+/**
+ * The first thing a screen's content offers, ignoring the dock.
+ *
+ * Used when leaving the dock downwards on a screen that has no opinion of its
+ * own about where focus should land.
+ */
+function firstContentFocusable() {
+  return contentFocusables()[0] || null;
+}
+
+/**
+ * Whether the focused content sits in the topmost row of the page.
+ *
+ * The dock is above everything, so "up" from the top row should reach it. Rather
+ * than each screen declaring where its top is, this compares the focused
+ * element against the highest focusable on the page — which is true whatever
+ * that screen's layout happens to be.
+ */
+function isInTopmostContentRow(node) {
+  if (!node || isTopBarNode(node)) {
+    return false;
+  }
+  const nodes = contentFocusables(node.closest(".screen"));
+  if (!nodes.length) {
+    return false;
+  }
+  const top = Math.min(...nodes.map((entry) => entry.getBoundingClientRect().top));
+  // A row's cards are not pixel-aligned, so a small tolerance keeps a whole row
+  // counting as the top one.
+  return node.getBoundingClientRect().top - top < 24;
+}
+
+/**
+ * The dock's key handling, for every screen at once.
+ *
+ * Lives here and is called by the focus engine before the screen sees the key,
+ * because the dock is app chrome rather than part of any screen. Two owners is
+ * what produced the earlier bugs: a screen navigating its own cards while the
+ * dock had focus, and arrow presses being acted on twice.
+ *
+ * @returns {boolean} true when the dock consumed the key.
+ */
+export function handleTopBarKey(event, { onLeaveDown = null } = {}) {
+  const keyCode = Number(event?.keyCode || 0);
+  const focused = getFocusedTopBarNode();
+
+  if (focused) {
+    if (keyCode === 37 || keyCode === 39) {
+      event?.preventDefault?.();
+      moveWithinTopBar(focused, keyCode === 37 ? -1 : 1);
       return true;
     }
-    live.forEach((node) => node.classList.remove("focused"));
-    target.classList.add("focused");
-    target.focus?.({ preventScroll: true });
-    return true;
-  };
+    if (keyCode === 40) {
+      event?.preventDefault?.();
+      focused.classList.remove("focused");
+      // The screen knows best where focus belongs; the generic answer is only
+      // used when it has no opinion.
+      const handled = typeof onLeaveDown === "function" ? onLeaveDown(focused) : false;
+      if (!handled) {
+        const target = firstContentFocusable();
+        if (target) {
+          target.classList.add("focused");
+          target.focus?.({ preventScroll: true });
+        }
+      }
+      return true;
+    }
+    if (keyCode === 38) {
+      // Nothing above the dock. Consumed so focus does not fall out of it.
+      event?.preventDefault?.();
+      return true;
+    }
+    if (keyCode === 13) {
+      event?.preventDefault?.();
+      activateTopBarAction(String(focused.dataset.action || ""), Router.getCurrent?.() || "");
+      return true;
+    }
+    return false;
+  }
 
-  nodes.forEach((node) => {
+  // Coming back up from the top row of the content.
+  if (keyCode === 38) {
+    const active =
+      globalThis.document?.querySelector(".screen:not(.hidden) .focusable.focused") ||
+      globalThis.document?.activeElement ||
+      null;
+    if (isInTopmostContentRow(active)) {
+      const target = getTopBarSelectedNode(currentScreenRoot() || globalThis.document);
+      if (target) {
+        event?.preventDefault?.();
+        active.classList?.remove("focused");
+        target.classList.add("focused");
+        target.focus?.({ preventScroll: true });
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Wires clicks. Keys are owned by handleTopBarKey, called by the focus engine. */
+export function bindTopBarEvents(container, { currentRoute = "", onSelectedAction = null } = {}) {
+  getTopBarNodes(container).forEach((node) => {
     node.onclick = async (event) => {
       event?.preventDefault?.();
       event?.stopPropagation?.();
@@ -227,29 +345,7 @@ export function bindTopBarEvents(
         await onSelectedAction(node);
       }
     };
-
-    node.onkeydown = (event) => {
-      const keyCode = Number(event?.keyCode || 0);
-      if (keyCode === 37 || keyCode === 39) {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        // Two owners want this key: the focus engine hands it to the screen's
-        // own direction logic in the capture phase, and this listener sees it
-        // again on the way back up. Whichever ran first has already moved focus
-        // off this node, so acting again would move a second step — and if the
-        // screen moved left while this moved from a stale index, the pair could
-        // land to the right of where it started. Moving only while focus is
-        // still here makes whichever handler arrives first the only one to act.
-        if (document.activeElement === node) {
-          move(node, keyCode === 37 ? -1 : 1);
-        }
-        return;
-      }
-      if (keyCode === 40 && typeof onLeaveDown === "function") {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        onLeaveDown(node);
-      }
-    };
+    // Deliberately no onkeydown: see handleTopBarKey.
+    node.onkeydown = null;
   });
 }
