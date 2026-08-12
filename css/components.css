@@ -5283,7 +5283,10 @@ button:focus-visible {
 }
 
 .home-screen-shell .home-poster-card .content-poster {
-  background: linear-gradient(180deg, rgba(26, 26, 26, 1), rgba(10, 10, 10, 1));
+  /* Flat, not a gradient. This sits entirely behind the poster and is only ever
+     seen for the moment before one loads, so a gradient here is a full-card
+     paint per poster in exchange for something nobody sees. */
+  background-color: #141414;
   transition: opacity 280ms ease;
 }
 
